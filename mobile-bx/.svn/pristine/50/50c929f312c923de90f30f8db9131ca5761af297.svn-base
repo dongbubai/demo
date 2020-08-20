@@ -1,0 +1,232 @@
+package hd.bs.mobile.invoice;
+
+import java.util.ArrayList;
+import java.util.HashMap;
+import java.util.List;
+
+import hd.bs.bill.bxfee.FeeBaseAction;
+import hd.bs.muap.bdoc.DefaultDocAction;
+import hd.itf.muap.pub.IMobileBillType;
+import hd.muap.vo.field.IVOField;
+import hd.vo.muap.pub.BillVO;
+import hd.vo.muap.pub.ConditionAggVO;
+import hd.vo.muap.pub.ConditionVO;
+import hd.vo.muap.pub.DefEventVO;
+import hd.vo.muap.pub.MenuVO;
+import nc.bs.dao.BaseDAO;
+import nc.jdbc.framework.processor.BeanListProcessor;
+import nc.md.persist.framework.MDPersistenceService;
+import nc.vo.ep.bx.BXBusItemVO;
+import nc.vo.ep.bx.JKHeaderVO;
+import nc.vo.ep.bx.JKVO;
+import nc.vo.erm.fppj.FpglVO;
+import nc.vo.erm.fppj.FpxxBVO;
+import nc.vo.pub.BusinessException;
+import nc.vo.pub.CircularlyAccessibleValueObject;
+import nc.vo.pub.SuperVO;
+import nc.vo.pub.lang.UFBoolean;
+import nc.vo.pub.lang.UFDate;
+import nc.vo.pub.lang.UFDateTime;
+import nc.vo.pub.lang.UFDouble;
+import nc.vo.pub.lang.UFLiteralDate;
+
+/**
+ * 发票自定义参照样式实现
+ * @author dongl 
+ * 1.查询发票返回的对象为DefEventVO
+ * 需要设置billvo发票的主子表数据
+ * 设置MenuVO 用于匹配对应模板
+ * 
+ * 2.还款单参照借款单号 做 自定义参照
+ * 如果子表yjye金额大于0 那么对子表 进行过滤
+ */
+public class DefualtDefReFPfAction extends DefaultDocAction {
+
+	public DefualtDefReFPfAction() {
+		
+	}
+	
+	@Override
+	public Object processAction(String account, String userid, String billtype,String action, Object obj) throws BusinessException {
+		if (billtype.equals(IMobileBillType.DEFREF)) {
+			return doDefRefDocQuery(account, userid, obj,action);
+		}
+		return super.processAction(account, userid, billtype, action, obj);
+	}
+	
+	BaseDAO dao = new BaseDAO();
+	private Object doDefRefDocQuery(String account, String userid, Object obj,String action) throws BusinessException {
+		ConditionAggVO conAggVO = (ConditionAggVO)obj;
+		ConditionVO[] conVOs = conAggVO.getConditionVOs();
+		if(conVOs==null||conVOs.length==0){
+			return null;
+		}
+		
+		DefEventVO defeventVO = new DefEventVO();
+		String pk_fpdoc = null;
+		//取出发票的PK值
+		for(int i=0;i<conVOs.length;i++){
+			if(conVOs[i].getField().equalsIgnoreCase(IVOField.PK)){
+				pk_fpdoc = conVOs[i].getValue();
+			}
+		}
+		
+		String doctypes = conVOs[0].getValue();
+		String pk_org = conVOs[1].getValue();
+		String[] split = doctypes.split(",");
+		if(split[0].endsWith("发票号")){
+			//是否启用 发票报销模块 H013
+			UFBoolean booleanFP = new FeeBaseAction().getsysinitFP();
+			if(booleanFP.booleanValue()){
+				StringBuffer sql = new StringBuffer(
+						"select *\n" +
+								"  from erm_fpgl\n" + 
+								" where nvl(dr, 0) = 0\n" + 
+								"   and erm_fpgl.FPLX is not null\n" + 
+								"   and erm_fpgl.FPHM is not null\n" + 
+								"   and billmaker = '"+userid+"'\n" );
+				//如果有发票的PK说明为参照翻译  else 每次点击报销节点 会重新查一次发票		
+				if(pk_fpdoc!=null&&pk_fpdoc.length()>0){
+					sql.append(" and erm_fpgl.pk_fpgl in ('"+pk_fpdoc+"') ");
+				}else{
+					sql.append(" and billversionpk is null ");
+				}
+				//是否启用业务参数 H014 Y 启用
+				booleanFP = new FeeBaseAction().sysinitFPCheck();
+				if(booleanFP.booleanValue()){
+					sql.append( " and cyzt <> '未查验' ");
+				}
+				sql.append(" order by erm_fpgl.creationtime  desc ");
+				ArrayList<FpglVO> Fplist = (ArrayList<FpglVO>)dao.executeQuery(sql.toString(), new BeanListProcessor(FpglVO.class));
+				if(null == Fplist || Fplist.size() == 0){
+					return null;
+				}
+				//发票类型
+				String pk_billtype = "FP01";
+				HashMap<String, Object>[] maps = transNCVOTOMap(Fplist.toArray(new FpglVO[0]));
+				HashMap<String, Object> headVO = null;
+				BillVO[] billVOs = new BillVO[maps.length];
+				for (int i = 0; i < maps.length; i++) {
+					BillVO billVO = new BillVO();
+					//参照出来的发票不可以修改
+					maps[i].put("ibillstatus", 1);
+					headVO = maps[i];
+					billVO.setHeadVO(headVO);
+					String strWhere = " nvl(dr,0) = 0 and pk_fpgl  = '"+maps[i].get("pk_fpgl")+"'";
+					ArrayList<SuperVO> bodylist = (ArrayList<SuperVO>) dao.retrieveByClause(FpxxBVO.class, strWhere);
+					if(null != bodylist && bodylist.size() > 0){
+						billVO.setTableVO("pk_fpxx", transNCVOTOMap(bodylist.toArray(new FpxxBVO[0])));
+					}
+					billVOs[i] = billVO;
+				}
+				defeventVO.setVos(billVOs);
+				MenuVO menuVO = new MenuVO();
+				menuVO.setMenucode("HMH39900");
+				defeventVO.setMenuVO(menuVO);
+				return defeventVO;
+			}
+		}else if(split[0].endsWith("报销单号")){
+			String sql = 
+					"select distinct a.*\n" +
+					"          from er_busitem b\n" + 
+					"          join er_jkzb a\n" + 
+					"            on a.pk_jkbx = b.pk_jkbx\n" + 
+					"          left join er_mtapp_detail m\n" + 
+					"            ON b.pk_mtapp_detail = m.pk_mtapp_detail\n" + 
+					"          left join bd_inoutbusiclass d\n" + 
+					"            on d.pk_inoutbusiclass = b.szxmid\n" + 
+					"          join bd_psndoc p\n" + 
+					"            on p.pk_psndoc = a.jkbxr\n" + 
+					"          join sm_user u\n" + 
+					"            on p.pk_psndoc = u.pk_psndoc\n" + 
+					"         where a.yjye > 0\n" + 
+					"           and a.dr = 0\n" + 
+					"           and a.pk_org = '"+pk_org+"'\n" + 
+					"           and u.cuserid = '"+userid+"'\n" + 
+					"           and a.djzt = 3\n" + 
+					"           and isnull(b.dr, 0) = 0\n" + 
+					"           and (b.yjye > 0 and\n" + 
+					"               b.pk_jkbx in (select pk_jkbx\n" + 
+					"                                from er_busitem\n" + 
+					"                               where pk_item is null\n" + 
+					"                                  or pk_item = '~'\n" + 
+					"                                  or srcbilltype = '2611'))";
+			if(pk_fpdoc!=null&&pk_fpdoc.length()>0){
+				sql = sql+ "and b.pk_busitem = '"+pk_fpdoc+"'";
+			}
+			sql = sql+ " order by a.djrq desc ";
+			ArrayList<JKHeaderVO> jkList = (ArrayList<JKHeaderVO>)dao.executeQuery(sql, new BeanListProcessor(JKHeaderVO.class));
+			if(null == jkList || jkList.size() == 0){
+				return null;
+			}
+			HashMap<String, Object>[] maps = transNCVOTOMap(jkList.toArray(new JKHeaderVO[0]));
+			HashMap<String, Object> headVO = null;
+			BillVO[] billVOs = new BillVO[maps.length];
+			for (int i = 0; i < maps.length; i++) {
+				BillVO billVO = new BillVO();
+				//参照出来的借款单不可以修改
+				maps[i].put("ibillstatus", 1);
+				headVO = maps[i];
+				billVO.setHeadVO(headVO);
+				JKVO aggvos = MDPersistenceService.lookupPersistenceQueryService().queryBillOfVOByPK(JKVO.class, maps[i].get("pk_jkbx").toString(), false);
+		        BXBusItemVO[] busitem = aggvos.getBxBusItemVOS();
+		        //如果子表某条数据   yjye 金额为0 则不显示此条数据
+		        List<BXBusItemVO> bList = new ArrayList<BXBusItemVO>();
+		        if(null != busitem && busitem.length > 0){
+		          for(int b=0; b<busitem.length; b++){
+		            if(busitem[b].getYjye().compareTo(new UFDouble(0)) > 0){
+		              bList.add(busitem[b]);
+		            }
+		          }
+		          billVO.setTableVO("jk_busitem", transNCVOTOMap(bList.toArray(new BXBusItemVO[0])));
+		        }
+				billVOs[i] = billVO;
+			}
+			defeventVO.setVos(billVOs);
+			MenuVO menuVO = new MenuVO();
+			//H5 没有NC产品的 菜单编码  这里写死
+			menuVO.setMenucode("HMH30400");
+			defeventVO.setMenuVO(menuVO);
+			return defeventVO;
+		}
+		return doDefDocQuery(account, userid, obj);
+	}
+	
+	
+	public HashMap<String, Object>[] transNCVOTOMap(CircularlyAccessibleValueObject[] bodyVOs) throws BusinessException {
+		ArrayList<HashMap<String, Object>> mbodyList = new ArrayList<HashMap<String, Object>>();
+		String[] bodyattrs = bodyVOs[0].getAttributeNames();
+		for (int row = 0; row < bodyVOs.length; row++) {
+			HashMap<String, Object> mbodyVO = new HashMap<String, Object>();
+			for (int i = 0; i < bodyattrs.length; i++) {
+				Object value = bodyVOs[row].getAttributeValue(bodyattrs[i]);
+				if (value != null) {
+					if (value instanceof UFBoolean) {
+						mbodyVO.put(bodyattrs[i], ((UFBoolean) value).booleanValue());
+					} else if (value instanceof UFDouble) {
+						mbodyVO.put(bodyattrs[i], ((UFDouble) value).doubleValue());
+					} else if (value instanceof UFDate) {
+						mbodyVO.put(bodyattrs[i], ((UFDate) value).toString());
+					} else if (value instanceof UFDateTime) {
+						mbodyVO.put(bodyattrs[i], ((UFDateTime) value).toString());
+					} else if (value instanceof UFLiteralDate) {
+						mbodyVO.put(bodyattrs[i], ((UFLiteralDate) value).toString());
+					} else if(value instanceof String
+							||value instanceof Integer
+							||value instanceof Double
+							||value instanceof Boolean){
+						//其他基本类型的数据
+						mbodyVO.put(bodyattrs[i], value);
+					}
+				}
+			}
+			// 设置主键到常量字段
+			mbodyVO.put(IVOField.PK, bodyVOs[row].getPrimaryKey());
+
+			mbodyList.add(mbodyVO);
+		}
+
+		return mbodyList.toArray(new HashMap[0]);
+	}
+
+}

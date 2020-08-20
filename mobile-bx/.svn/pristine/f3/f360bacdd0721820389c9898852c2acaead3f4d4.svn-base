@@ -1,0 +1,97 @@
+package hd.bs.bill.bxfee;
+
+import hd.bs.muap.pub.DefaultBillAction;
+import hd.muap.pub.tools.PubTools;
+import hd.vo.muap.pub.BillVO;
+
+import java.util.ArrayList;
+import java.util.HashMap;
+
+import nc.bs.dao.BaseDAO;
+import nc.jdbc.framework.processor.ArrayListProcessor;
+import nc.vo.pub.BusinessException;
+
+/**
+ * 审批联查上游单据 单据默认实现
+ * @author zhouwq
+ */
+public class QueryLinkBillAction extends DefaultBillAction {
+
+	public QueryLinkBillAction() {
+	}
+
+	static BaseDAO dao = new BaseDAO();
+
+	/**
+	 * 获取联查的单据ID，如果存在多个自定义按钮通过单据ID进行联查，可以通过getAction获取动作编码，进行判断返回不同的单据ID。
+	 *  示例：
+	 * if(getAction().equals("Action1")){
+			return "id1";
+		}else if(getAction().equals("Action2")){
+			return "id2";
+		}
+	 */
+	@Override
+	protected String getlinkBillID(Object obj) throws BusinessException{
+		//查询出代办里的 所有名字是联查申请的按钮
+		String sql =" select btncode\n" +
+					"  from SM_BUTNREGISTER\n" + 
+					"  where parent_id in (select cfunid from sm_funcregister )\n" + 
+					"  and nvl(dr, 0) = 0\n" + 
+					"  and btnname = '联查申请';";
+
+		ArrayList<Object[]> btncodeList = (ArrayList<Object[]>) dao.executeQuery(sql,new ArrayListProcessor());
+		String str = "";
+		if(null != btncodeList && btncodeList.size() > 0){
+			for(int i = 0;i<btncodeList.size();++i){
+				str = str+ btncodeList.get(i)[0].toString()+ ",";
+			}
+
+		}
+
+		if(str.contains(getAction())){
+
+			BillVO vo = (BillVO)obj;
+			HashMap<String, HashMap<String, Object>[]> bodyMap = vo.getBodyVOsMap();
+			HashMap<String, Object>[] bxbusitem = null; 
+			if(getAction().startsWith("263")){
+				bxbusitem = bodyMap.get("jk_busitem");
+			}
+			if(getAction().startsWith("264")){
+				bxbusitem = bodyMap.get("arap_bxbusitem");
+			}
+			Object pk_item = "";
+			for(int i=0; i<bxbusitem.length; i++){
+				pk_item = bxbusitem[i].get("pk_item");
+			}
+			if(!PubTools.isNull(pk_item)){
+				return pk_item.toString();
+			}else{
+				throw new BusinessException("没有数据");
+			}
+		}
+		return null;
+	}
+
+	/**
+	 * 获取联查的单据类型，如果存在多个自定义按钮联查，可以通过getAction获取动作编码，进行判断返回不同的联查单据类型。
+	 * 示例：
+	 * if(getAction().equals("Action1")){
+			return "type1";
+		}else if(getAction().equals("Action2")){
+			return "type2";
+		}
+	 */
+	@Override
+	protected String getLinkBillType(Object obj)throws BusinessException{
+		
+		//dongl 修改 
+		BillVO vo = (BillVO)obj;
+		//优化根据 obj查出单据类型
+		if(null != vo.getHeadVO().get("srcbilltype") && !"".equals(vo.getHeadVO().get("srcbilltype"))){
+			return  vo.getHeadVO().get("srcbilltype").toString();
+		}else{
+			throw new BusinessException("联查单据不存在！");
+		}
+	}
+}

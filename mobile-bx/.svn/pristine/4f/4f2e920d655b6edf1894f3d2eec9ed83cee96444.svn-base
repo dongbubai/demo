@@ -1,0 +1,411 @@
+package hd.bs.bill.bxfee;
+
+import java.util.ArrayList;
+import java.util.HashMap;
+
+import nc.bs.dao.BaseDAO;
+import nc.bs.framework.common.NCLocator;
+import nc.itf.uap.pf.IPFBusiAction;
+import nc.jdbc.framework.processor.BeanListProcessor;
+import nc.md.persist.framework.MDPersistenceService;
+import nc.pubitf.erm.costshare.IErmCostShareBillApprove;
+import nc.pubitf.erm.costshare.IErmCostShareBillManage;
+import nc.vo.ep.bx.BXHeaderVO;
+import nc.vo.ep.bx.BXVO;
+import nc.vo.erm.costshare.AggCostShareVO;
+import nc.vo.erm.costshare.CShareDetailVO;
+import nc.vo.erm.costshare.CostShareVO;
+import nc.vo.erm.matterapp.AggMatterAppVO;
+import nc.vo.erm.matterapp.MatterAppVO;
+import nc.vo.org.DeptVO;
+import nc.vo.org.OrgVO;
+import nc.vo.pub.BusinessException;
+import nc.vo.pub.VOStatus;
+import nc.vo.pub.lang.UFDate;
+import nc.vo.pub.lang.UFDateTime;
+import nc.vo.pub.lang.UFDouble;
+import hd.bs.muap.approve.ApproveWorkAction;
+import hd.muap.pub.tools.PuPubVO;
+import hd.muap.pub.tools.PubTools;
+import hd.muap.vo.field.IVOField;
+import hd.vo.muap.approve.MApproveVO;
+import hd.vo.muap.pub.AfterEditVO;
+import hd.vo.muap.pub.BillVO;
+import hd.vo.muap.pub.ConditionAggVO;
+import hd.vo.muap.pub.ConditionVO;
+import hd.vo.muap.pub.FormulaVO;
+import hd.vo.muap.pub.QueryBillVO;
+/**
+ * 费用结转单
+ * @author dongl 2020-7-25 
+ *
+ */
+public class ErmForCShareAction extends ApproveWorkAction{
+	
+	
+	static BaseDAO dao = new BaseDAO();
+	
+	static HashMap<String, String> deptMap = new HashMap<String, String>();
+	static HashMap<String, String> orgMap = new HashMap<String, String>();
+	
+	static {
+		try {
+			//部门
+			String sql = "select * from org_dept where isnull(dr,0)=0 and islastversion='Y'";
+			ArrayList<DeptVO> deptlist = (ArrayList<DeptVO>) dao.executeQuery(sql.toString(), new BeanListProcessor(DeptVO.class));
+			for (int i = 0; i < deptlist.size(); i++) {
+				deptMap.put(deptlist.get(i).getPk_dept(),deptlist.get(i).getPk_vid());
+			}
+			
+			//组织
+			sql = "select * from org_orgs where isnull(dr,0)=0 ";
+			ArrayList<OrgVO> orgsList = (ArrayList<OrgVO>) dao.executeQuery(sql, new BeanListProcessor(OrgVO.class));
+			for (int i = 0; i < orgsList.size(); i++) {
+				orgMap.put(orgsList.get(i).getPk_org(),orgsList.get(i).getPk_vid());
+			}
+			
+		} catch (BusinessException e) {
+			e.printStackTrace();
+		}
+	}
+	
+	@Override
+	public Object processAction(String account, String userid, String billtype, String action, Object obj) throws BusinessException {
+		//费用结转单新增 查出符合条件的报销单 dongl
+		if(null != action && !"".equals(action)){
+			if ("DEFAPPLY".equals(action)) {
+				return new FeeBaseAction().queryPageCShare(userid,billtype,obj);
+			} 
+		}
+		//符合条件的报销单 转化 费用结转单表头数据
+		if(null != action && !"".equals(action)){
+			if("DEFAPPLYOK".equals(action)){
+				return new FeeBaseAction().getBXHeadVO(obj,billtype.toString());
+			}
+		}
+		//审批和弃审 自定义按钮的形式进行处理
+		if("DEFAPPROVE".equals(action) || "DEFUNAPPROVE".equals(action)){
+			BillVO bill = (BillVO) obj;
+			String pk_costshare = (String) bill.getHeadVO().get("pk_costshare");
+			UFDate billdate = new UFDate(bill.getHeadVO().get("billdate").toString());
+			AggCostShareVO aggvos = MDPersistenceService.lookupPersistenceQueryService().queryBillOfVOByPK(AggCostShareVO.class, pk_costshare, false);
+			//审批 弃审相同接口 方法参数不同
+			IErmCostShareBillApprove ermCostShareBillManage = (IErmCostShareBillApprove) NCLocator.getInstance().lookup(IErmCostShareBillApprove.class.getName());
+			AggCostShareVO[] aggCostShareVO = new AggCostShareVO[1];
+			aggCostShareVO[0] = aggvos;
+			if("DEFAPPROVE".equals(action)){
+				ermCostShareBillManage.approveVOs(aggCostShareVO, billdate);
+			}else if("DEFUNAPPROVE".equals(action)){
+				ermCostShareBillManage.unapproveVOs(aggCostShareVO);	
+			}
+			Object queryvo = queryBillVoByPK(userid,pk_costshare);
+			return super.processAction(account, userid, billtype, action, queryvo);
+		}
+		return super.processAction(account, userid, billtype, action, obj);
+	}
+	
+	@Override
+	public Object afterEdit(String userid, Object obj) throws BusinessException {
+		AfterEditVO aevo = (AfterEditVO) obj;
+		BillVO bill = aevo.getVo();
+		HashMap<String, Object> head = bill.getHeadVO();//表头
+		HashMap<String, HashMap<String, Object>[]> bodys = bill.getBodyVOsMap();
+		HashMap<String, Object>[] er_cshare_detail = bodys.get("er_cshare_detail");
+		String[] formula_str = new String[20];
+		UFDouble sumamount = new UFDouble(0);
+		if(null != head.get("total") && !"".equals(head.get("total"))){
+			sumamount = sumamount.add(new UFDouble(head.get("total").toString()));
+		}
+		
+		if(null != er_cshare_detail && er_cshare_detail.length > 0){
+			for(int i=0;i<er_cshare_detail.length;i++){
+				//承担比例带出承担金额
+				if(aevo.getKey().equals("assume_amount")){
+					if(null != er_cshare_detail[i].get("assume_amount") && !"".equals(er_cshare_detail[i].get("assume_amount"))){
+						UFDouble assume_amount = new UFDouble(er_cshare_detail[i].get("assume_amount").toString());
+						if(sumamount.compareTo(new UFDouble(0))!=0 && assume_amount.compareTo(new UFDouble(0))!=0){
+							UFDouble share_ratio = assume_amount.div(sumamount).multiply(100);
+							formula_str[0] = "share_ratio->" + share_ratio + ";";
+
+							FormulaVO formulaVO = new FormulaVO();
+							formulaVO.setFormulas(formula_str);
+							return formulaVO; 
+						} 
+					}
+				}
+				//承担金额 带出承担比例
+				if(aevo.getKey().equals("share_ratio")){
+					if(null != er_cshare_detail[i].get("share_ratio") && !"".equals(er_cshare_detail[i].get("share_ratio"))){
+						UFDouble share_ratio = new UFDouble(er_cshare_detail[i].get("share_ratio").toString()).div(100);
+						UFDouble assume_amount = sumamount.multiply(share_ratio);
+						formula_str[0] = "assume_amount->" + assume_amount.setScale(2, UFDouble.ROUND_HALF_UP) + ";";
+
+						FormulaVO formulaVO = new FormulaVO();
+						formulaVO.setFormulas(formula_str);
+						return formulaVO; 
+					}
+				}
+			}
+		}
+		
+		return null;
+	}
+	
+	//封装报销单表头VO
+	public CostShareVO getBxHeadVO(CostShareVO hvo)throws BusinessException{
+		if(null != hvo.getSrc_id() && !"".equals(hvo.getSrc_id())){
+			BXVO aggvos = MDPersistenceService.lookupPersistenceQueryService().queryBillOfVOByPK(BXVO.class, hvo.getSrc_id(), false);
+			BXHeaderVO bxheadvo = (BXHeaderVO) aggvos.getParentVO(); 
+		    hvo.setBxheadvo(bxheadvo);
+		    return hvo;
+		}
+		return null;
+	}
+
+	
+	@Override
+	public Object save(String userid, Object obj) throws BusinessException {
+		BillVO bill = (BillVO) obj;// 聚合
+		HashMap<String, Object> head = bill.getHeadVO();// 表头
+		HashMap<String, HashMap<String, Object>[]> bodys = bill.getBodyVOsMap();// 表体
+		HashMap<String, Object>[] er_cshare_detail = bodys.get("er_cshare_detail");// 页签
+		AggCostShareVO aggvo = new AggCostShareVO();
+		CostShareVO hvo =(CostShareVO) transMapTONCVO(CostShareVO.class, head);
+		//给组织赋值
+		hvo.setPk_org_v(orgMap.get(head.get("pk_org")));
+		//报销单位
+		if(null != hvo.getBx_org() && !"".equals(hvo.getBx_org())){
+			hvo.setBx_org_v(orgMap.get(hvo.getBx_org()));
+		}
+		//费用承担单位 
+		if(null != hvo.getFydwbm() && !"".equals(hvo.getFydwbm())){
+			hvo.setFydwbm_v(orgMap.get(hvo.getFydwbm()));
+		}
+		//费用承担部门 项目主键	Fydeptid
+		if(null != hvo.getFydeptid() && !"".equals(hvo.getFydeptid())){
+			hvo.setFydeptid_v(deptMap.get(hvo.getFydeptid()));
+		}
+		//报销人单位 项目主键	Dwbm
+		if(null != hvo.getDwbm() && !"".equals(hvo.getDwbm())){
+			hvo.setDwbm_v(orgMap.get(hvo.getDwbm()));
+		}
+		//报销人 部门 项目主键	Deptid
+		if(null != hvo.getDeptid() && !"".equals(hvo.getDeptid())){
+			hvo.setDeptid_v(deptMap.get(hvo.getDeptid()));
+		}
+		int hstatus = Integer.parseInt(head.get("vostatus").toString());
+		
+		//封装报销单表头
+		hvo = getBxHeadVO(hvo);
+		UFDateTime time = new UFDateTime();
+		if (hstatus == VOStatus.NEW) {
+			hvo.setCreator(userid); // 创建人
+			hvo.setCreationtime(time);// 创建时间
+			hvo.setBillmaker(userid);// 申请人
+			hvo.setBilldate(new UFDate());
+			hvo.setBillstatus(1);
+		} else {
+			hvo.setModifier(userid);// 修改人
+			hvo.setModifiedtime(time);// 修改时间
+			hvo.setCreator(head.get("creator") == null ? userid : head.get("creator").toString()); // 创建人
+			hvo.setBillmaker(PuPubVO.getString_TrimZeroLenAsNull(head.get("billmaker")));// 申请人
+			hvo.setCreationtime(new UFDateTime(head.get("billdate").toString()));// 创建时间
+			hvo.setBillstatus(hstatus);
+		}
+		
+		//子表数据处理
+		ArrayList<CShareDetailVO> CShareDetailBody = null;
+		if(null != er_cshare_detail && er_cshare_detail.length > 0){
+			CShareDetailBody = new ArrayList<CShareDetailVO>(er_cshare_detail.length);
+			for(int i=0;i<er_cshare_detail.length;i++){
+				CShareDetailVO bodyvo =(CShareDetailVO) transMapTONCVO(CShareDetailVO.class,er_cshare_detail[i]);
+				int bstatus = Integer.parseInt(er_cshare_detail[i].get("vostatus").toString());
+				if (null != head.get("PK") && !"".equals(head.get("PK"))) {
+					bodyvo.setPk_costshare(hvo.getPk_costshare().toString());
+					if (bstatus != 2) {
+						bodyvo.setPk_cshare_detail(er_cshare_detail[i].get("pk_cshare_detail").toString());
+					}
+					bodyvo.setStatus(bstatus);
+				}else{
+					bodyvo.setStatus(2);
+				}
+                //来源单据id
+				if(null != head.get("src_id") && !"".equals(head.get("src_id"))){
+                	bodyvo.setSrc_id(hvo.getSrc_id());
+                	bodyvo.setPk_jkbx(hvo.getSrc_id());
+                }
+				if(null != head.get("bbje") && !"".equals(head.get("bbje"))){
+					bodyvo.setBbje(new UFDouble(head.get("bbje").toString()));
+				}
+				if(null != head.get("bbhl") && !"".equals(head.get("bbhl"))){
+					bodyvo.setBbhl(new UFDouble(head.get("bbhl").toString()));
+				}
+				if(null != head.get("bzbm") && !"".equals(head.get("bzbm"))){
+					bodyvo.setBzbm(head.get("bzbm").toString());
+				}
+				bodyvo.setPk_tradetype("2651");
+				CShareDetailBody.add(bodyvo);
+			}
+		}
+		
+		aggvo.setParentVO(hvo);
+		aggvo.setChildrenVO(CShareDetailBody.toArray(new CShareDetailVO[] {}));
+		
+		//接口 IErmCostShareBillManage
+		Object o = null;// 初始化超类
+		IErmCostShareBillManage ermCostShareBillManage = (IErmCostShareBillManage) NCLocator.getInstance().lookup(IErmCostShareBillManage.class.getName());
+		if(hstatus == VOStatus.NEW){
+			o = ermCostShareBillManage.insertVO(aggvo);
+		}else{
+			o = ermCostShareBillManage.updateVO(aggvo);
+		}
+		AggCostShareVO returnVO = (AggCostShareVO)o;
+		if(o != null) {
+			CostShareVO returnHVO = (CostShareVO) returnVO.getParentVO();
+			return queryBillVoByPK(userid,returnHVO.getPk_costshare());
+		}
+		return null;
+	}
+	
+	public BillVO queryBillVoByPK(String userid, String pk) throws BusinessException {
+
+		BillVO billVO = new BillVO();
+		ConditionAggVO condAggVO_head = new ConditionAggVO();
+		ConditionVO[] condVOs_head = new ConditionVO[1];
+		condVOs_head[0] = new ConditionVO();
+		condVOs_head[0].setField(IVOField.PPK);
+		condVOs_head[0].setOperate("=");
+		condVOs_head[0].setValue(pk);
+		condAggVO_head.setConditionVOs(condVOs_head);
+
+		ConditionAggVO condAggVO_body = new ConditionAggVO();
+		ConditionVO[] condVOs_body = new ConditionVO[1];
+		condVOs_body[0] = new ConditionVO();
+		condVOs_body[0].setField(IVOField.PPK);
+		condVOs_body[0].setOperate("=");
+		condVOs_body[0].setValue(pk);
+		condAggVO_body.setConditionVOs(condVOs_body);
+
+		// 查询 表头
+		QueryBillVO head_querybillVO = (QueryBillVO) this.queryPage(userid, condAggVO_head, 1, 1);
+		if(null==head_querybillVO){
+			return null;
+		}
+		BillVO head_BillVO = head_querybillVO.getQueryVOs()[0];
+		// 查询 表体
+		QueryBillVO body_querybillVO = (QueryBillVO) queryPage_body(userid, condAggVO_body,1,1);
+		// 查询 表体  
+		if(null!=body_querybillVO.getQueryVOs()){
+			billVO = body_querybillVO.getQueryVOs()[0];
+		}
+		billVO.setHeadVO(head_BillVO.getHeadVO());
+		return billVO; 
+	}
+	
+	@Override
+	public Object queryPage(String userid, Object obj, int startnum, int endnum) throws BusinessException {
+
+		HashMap<String,String> map = new HashMap<String,String>();
+		map.put("PPK","er_costshare.pk_costshare");
+		map.put("PK","er_costshare.pk_costshare");
+		map.put("arap_jkzb", "er_costshare");
+		map.put("pk_org", "er_costshare.pk_org");
+		StringBuffer str = reCondition(obj, true,map);
+
+		String billtype = super.getBilltype();
+		String billtype_code = "";
+		billtype_code = new FeeBaseAction().getbilltypeCode(billtype);
+		if (billtype_code.length() > 1) {
+			billtype_code = " and er_costshare.pk_tradetype ='" + billtype_code + "' ";
+		}
+
+		String sql ="select *\n" +
+				"  from (select rownum rowno, a.*\n" + 
+				"          from (select distinct er_costshare.*\n" + 
+				"                  from er_costshare \n" +
+				"				   left join er_cshare_detail on er_costshare.pk_costshare =er_cshare_detail.pk_costshare  " +
+				"                  and nvl(er_cshare_detail.dr,0)=0\n " +
+				"                 where nvl(er_costshare.dr, 0) = 0\n" + 
+				"                   and creator = '"+userid+"'\n" + 
+				"                   "+str+"\n" + 
+				"                   "+billtype_code+"\n" + 
+				"                 order by er_costshare.billdate  desc) a)\n" + 
+				" where rowno between "+startnum+" and "+endnum+""; 
+
+		@SuppressWarnings("unchecked")
+		ArrayList<CostShareVO> list = (ArrayList<CostShareVO>) dao.executeQuery(sql, new BeanListProcessor(CostShareVO.class));
+		if (list == null || list.size() == 0) {
+			return null;
+		}
+		HashMap<String, Object>[] maps = transNCVOTOMap(list.toArray(new CostShareVO[0]));
+		QueryBillVO qbillVO = new QueryBillVO();
+		BillVO[] billVOs = new BillVO[list.size()];
+		String djbm = "";
+		for (int i = 0; i < maps.length; i++) {
+			if(null != maps[i].get("djlxbm")){
+				djbm =" '"+maps[i].get("djlxbm")+"' ";
+			}
+			BillVO billVO = new BillVO();
+			HashMap<String, Object> headVO = maps[i];
+			// 单据状态处理
+			if (null == maps[i].get("billstatus") || "".equals(maps[i].get("billstatus")) || 1 == Integer.parseInt(maps[i].get("billstatus").toString())) {
+				maps[i].put("ibillstatus", -1);// 自由
+			} else if (null != maps[i].get("billstatus") && 3 == Integer.parseInt(maps[i].get("billstatus").toString())) {
+				maps[i].put("ibillstatus",1);// 已审批
+			} else {
+				maps[i].put("ibillstatus", 1);// 审批通过
+			}
+			billVO.setHeadVO(headVO);
+			billVOs[i] = billVO;
+		}
+		//翻译 审批表头公式 
+		new FeeBaseAction().excuteListShowFormulas(djbm, billVOs);
+		qbillVO.setQueryVOs(billVOs);
+		return qbillVO;
+	}
+	
+	@Override
+	public Object queryPage_body(String userid, Object obj, int startnum, int endnum) throws BusinessException {
+		QueryBillVO qbillVO = new QueryBillVO();
+		BillVO[] billVOs = new BillVO[1]; 
+		BillVO billVO = new BillVO();
+		// 表体查询语句
+		StringBuffer str = dealCondition(obj, true);
+		String condition = str.toString().replace("pk_corp", "pk_org");
+		condition = condition.toString().replace("PPK", "pk_costshare") ;
+		String sql = "select distinct er_cshare_detail.*\n" + 
+		        "                from  er_cshare_detail\n " +
+		        "                where nvl(er_cshare_detail.dr, 0) = 0\n" + 
+		        "                "+condition+" "; ;
+		ArrayList<CShareDetailVO> listc = (ArrayList<CShareDetailVO>) dao.executeQuery(sql, new BeanListProcessor(CShareDetailVO.class));
+		if (listc != null && listc.size() > 0) {
+			HashMap<String, Object>[] maps = transNCVOTOMap(listc.toArray(new CShareDetailVO[0]));
+			/**
+			 * vostatus->1 界面未编辑，也会回传给后台
+			 */
+			String[] formulas = new String[] { "vostatus->1;" };
+			PubTools.execFormulaWithVOs(maps, formulas);
+			billVO.setTableVO("er_cshare_detail", maps);
+		}
+		billVOs[0] = billVO;
+		qbillVO.setQueryVOs(billVOs);
+		return qbillVO;
+		
+	}
+	
+	@Override
+	public Object delete(String userid, Object obj) throws BusinessException {
+
+		BillVO bill = (BillVO) obj;
+		if (null != bill.getHeadVO().get("pk_costshare")) { 
+			String pk_costshare = bill.getHeadVO().get("pk_costshare").toString();
+			AggCostShareVO aggvos = MDPersistenceService.lookupPersistenceQueryService().queryBillOfVOByPK(AggCostShareVO.class, pk_costshare, false);
+			IErmCostShareBillManage ermCostShareBillManage = (IErmCostShareBillManage) NCLocator.getInstance().lookup(IErmCostShareBillManage.class.getName());
+			AggCostShareVO[] aggCostShareVO = new AggCostShareVO[1];
+			aggCostShareVO[0] = aggvos;
+			ermCostShareBillManage.deleteVOs(aggCostShareVO);
+		}
+		return null;
+	}
+	
+}

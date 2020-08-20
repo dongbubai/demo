@@ -1,0 +1,24 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<classpath>
+	<classpathentry kind="src" output="bill/classes" path="bill/src/public"/>
+	<classpathentry kind="src" output="bill/classes" path="bill/src/client"/>
+	<classpathentry kind="src" output="bill/classes" path="bill/src/private"/>
+	<classpathentry kind="src" output="bill/classes" path="bill/src/test"/>
+	<classpathentry kind="src" output="bill/classes" path="bill/resources"/>
+	<classpathentry combineaccessrules="false" exported="true" kind="src" path="/muap"/>
+	<classpathentry kind="con" path="org.eclipse.jdt.launching.JRE_CONTAINER"/>
+	<classpathentry kind="con" path="com.yonyou.ria.g2.container/Ant_Library"/>
+	<classpathentry kind="con" path="com.yonyou.ria.g2.container/Product_Common_Library"/>
+	<classpathentry kind="con" path="com.yonyou.ria.g2.container/Middleware_Library"/>
+	<classpathentry kind="con" path="com.yonyou.ria.g2.container/Framework_Library"/>
+	<classpathentry kind="con" path="com.yonyou.ria.g2.container/Module_Public_Library"/>
+	<classpathentry kind="con" path="com.yonyou.ria.g2.container/Module_Client_Library"/>
+	<classpathentry kind="con" path="com.yonyou.ria.g2.container/Module_Private_Library">
+		<accessrules>
+			<accessrule kind="accessible" pattern="**"/>
+		</accessrules>
+	</classpathentry>
+	<classpathentry kind="con" path="com.yonyou.ria.g2.container/Module_Lang_Library"/>
+	<classpathentry kind="con" path="com.yonyou.ria.g2.container/Generated_EJB"/>
+	<classpathentry kind="output" path="bin"/>
+</classpath>

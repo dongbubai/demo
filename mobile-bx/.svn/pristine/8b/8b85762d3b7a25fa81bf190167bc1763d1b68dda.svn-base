@@ -1,0 +1,27 @@
+package hd.bs.bill.bxfee;
+
+import nc.vo.pub.BusinessException;
+import hd.bs.muap.approve.ApproveWorkAction;
+/**
+ * 费用结转单
+ * @author dongl 2020-7-25 
+ *
+ */
+public class ErmForCShareAction extends ApproveWorkAction{
+	@Override
+	public Object processAction(String account, String userid, String billtype, String action, Object obj) throws BusinessException {
+		//费用结转单新增 查出符合条件的报销单 dongl
+		if(null != action && !"".equals(action)){
+			if ("DEFAPPLY".equals(action)) {
+				return new FeeBaseAction().queryPageCShare(userid,billtype,obj);
+			} 
+		}
+		//符合条件的报销单 转化 费用结转单表头数据
+		if(null != action && !"".equals(action)){
+			if("DEFAPPLYOK".equals(action)){
+				return new FeeBaseAction().getBXHeadVO(obj,billtype.toString());
+			}
+		}
+		return super.processAction(account, userid, billtype, action, obj);
+	}
+}

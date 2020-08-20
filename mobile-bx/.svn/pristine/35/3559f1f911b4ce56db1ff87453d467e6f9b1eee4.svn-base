@@ -1,0 +1,344 @@
+package hd.bs.bill.bxbd;
+
+import java.util.ArrayList; 
+import java.util.HashMap; 
+import nc.bs.dao.BaseDAO;
+import nc.bs.framework.common.InvocationInfoProxy; 
+import nc.jdbc.framework.processor.ArrayListProcessor;
+import nc.jdbc.framework.processor.BeanListProcessor; 
+import nc.vo.ep.bx.BXBusItemVO;
+import nc.vo.er.djlx.DjLXVO; 
+import nc.vo.erm.mactrlschema.MtappCtrlbillVO;
+import nc.vo.erm.mactrlschema.MtappCtrlfieldVO; 
+import nc.vo.pub.BusinessException;  
+import nc.vo.pub.billtype.BilltypeVO;
+import nc.vo.pub.lang.UFBoolean;
+import hd.bs.muap.approve.ApproveWorkAction;
+import hd.muap.pub.tools.PubTools;
+import hd.muap.vo.field.IVOField;
+import hd.vo.muap.pub.BillVO;
+import hd.vo.muap.pub.ConditionAggVO;
+import hd.vo.muap.pub.ConditionVO;
+import hd.vo.muap.pub.QueryBillVO;
+
+public class MtappCtrlRuleAction extends ApproveWorkAction{
+
+	BaseDAO dao = new BaseDAO();
+//	StringBuffer pk_org = new StringBuffer();
+	
+	
+	
+	
+	/**
+	 * 保存-新增保存和修改保存
+	 */
+	@Override
+	public Object save(String userid, Object obj) throws BusinessException {
+		BaseDAO dao = new BaseDAO();
+		String billtype = super.getBilltype();
+	 
+ 		BillVO bill = (BillVO) obj;
+		HashMap<String, Object> head = bill.getHeadVO();
+		HashMap<String, HashMap<String, Object>[]> bodys = bill.getBodyVOsMap();
+		HashMap<String, Object>[] cfieldMap = bodys.get("mtapp_cfield");//控制维度
+		HashMap<String, Object>[] cbillMap = bodys.get("mtapp_cbill");//控制对象
+
+		/**
+		 * 控制维度
+		 */
+		ArrayList<MtappCtrlfieldVO> updateFVOs = new ArrayList<MtappCtrlfieldVO>();
+		ArrayList<MtappCtrlfieldVO> deleteFVOs = new ArrayList<MtappCtrlfieldVO>();
+		ArrayList<MtappCtrlfieldVO> addnewFVOs = new ArrayList<MtappCtrlfieldVO>();
+		
+		HashMap<String, String> fname = new HashMap<String, String>();
+		
+		for(int i=0; null!=cfieldMap && i<cfieldMap.length; i++){
+			MtappCtrlfieldVO fvo = (MtappCtrlfieldVO) transMapTONCVO(MtappCtrlfieldVO.class,cfieldMap[i]);
+			//更新
+			if(null!=cfieldMap[i].get("vostatus") && cfieldMap[i].get("vostatus").equals(1)){
+				if(fname.containsKey(fvo.getFieldname())){
+					throw new BusinessException(fvo.getFieldname()+" 已经重复,不能保存!");
+				}else{
+					fname.put(fvo.getFieldname(), fvo.getFieldname());
+				}
+				fvo.setStatus(1);
+				updateFVOs.add(fvo);
+			}
+			
+			//新增
+			if(null!=cfieldMap[i].get("vostatus") && cfieldMap[i].get("vostatus").equals(2)){
+				if(fname.containsKey(fvo.getFieldname())){
+					throw new BusinessException(fvo.getFieldname()+" 已经重复,不能保存!");
+				}else{
+					fname.put(fvo.getFieldname(), fvo.getFieldname());
+				}
+				fvo.setStatus(2);
+				fvo.setDr(0);
+				String sql ="select *\n" +
+							"from (select replace(fullpath,'mtapp_bill.','') as fullpath ,\n" + 
+							"             case when instr(fullpath,'mtapp_detail.')>0 then '费用申请单明细.'||displayname else displayname end as displayname\n" + 
+							"      from md_attr_power\n" + 
+							"      join (select displayname,case when tableid='er_mtapp_bill' then 'mtapp_bill.'||name\n" + 
+							"                   when tableid='er_mtapp_detail' then 'mtapp_bill.mtapp_detail.'||name end as name\n" + 
+							"              from md_column\n" + 
+							"              where nvl(dr,0)=0\n" + 
+							"              and tableid in ('er_mtapp_bill','er_mtapp_detail')) col on col.name=md_attr_power.fullpath\n" + 
+							"     where beanid = 'e3167d31-9694-4ea1-873f-2ffafd8fbed8'\n" + 
+							"       and powertype = 'erm'\n" + 
+							"       and fullpath <> 'mtapp_bill.mtapp_detail'\n" + 
+							"       and nvl(dr,0)=0\n" + 
+							"      )\n" + 
+							"where displayname='"+fvo.getFieldname()+"'";
+				ArrayList<Object[]> list = (ArrayList<Object[]>) dao.executeQuery(sql, new ArrayListProcessor());
+				if(null!=list && list.size()>0){
+					fvo.setFieldcode(list.get(0)[0].toString());
+				}
+				if(null==fvo.getAdjust_enable()||"".equals(fvo.getAdjust_enable())){
+					fvo.setAdjust_enable(new UFBoolean(false));
+				}
+				if(null!=head.get("djlxbm")){
+					fvo.setPk_tradetype(head.get("djlxbm").toString());
+				}else{
+					throw new BusinessException("表头单据大类不能空!");
+				}
+				if(null!=billtype && "MUJ00770".equals(billtype)){
+					fvo.setPk_org(InvocationInfoProxy.getInstance().getGroupId());
+				} 
+				addnewFVOs.add(fvo);
+			}
+			
+			//删除
+			if(null!=cfieldMap[i].get("vostatus") && cfieldMap[i].get("vostatus").equals(3)){
+				fvo.setStatus(3);
+				deleteFVOs.add(fvo);
+			}
+		}
+		if(updateFVOs.size()>0){
+			dao.updateVOList(updateFVOs);
+		}
+		if(deleteFVOs.size()>0){
+			dao.deleteVOList(deleteFVOs);
+		}
+		if(addnewFVOs.size()>0){
+			dao.insertVOList(addnewFVOs);
+		}
+		
+		
+		
+		
+		/**
+		 * 控制对象
+		 */
+		ArrayList<MtappCtrlbillVO> updateBVOs = new ArrayList<MtappCtrlbillVO>();
+		ArrayList<MtappCtrlbillVO> deleteBVOs = new ArrayList<MtappCtrlbillVO>();
+		ArrayList<MtappCtrlbillVO> addnewBVOs = new ArrayList<MtappCtrlbillVO>();
+		
+		HashMap<String, String> bbilltype = new HashMap<String, String>();
+		
+		for(int i=0; null!=cbillMap && i<cbillMap.length; i++){
+			MtappCtrlbillVO bvo = (MtappCtrlbillVO) transMapTONCVO(MtappCtrlbillVO.class,cbillMap[i]);
+			//更新
+			if(null!=cbillMap[i].get("vostatus") && cbillMap[i].get("vostatus").equals(1)){
+				if(bbilltype.containsKey(bvo.getPk_src_tradetype())){
+					throw new BusinessException("控制对象交易类型已经重复,不能保存!");
+				}else{
+					bbilltype.put(bvo.getPk_src_tradetype(),bvo.getPk_src_tradetype());
+				}
+				bvo.setStatus(1);
+				updateBVOs.add(bvo);
+			}
+			
+			//新增
+			if(null!=cbillMap[i].get("vostatus") && cbillMap[i].get("vostatus").equals(2)){
+				if(bbilltype.containsKey(bvo.getPk_src_tradetype())){
+					throw new BusinessException("控制对象交易类型已经重复,不能保存!");
+				}else{
+					bbilltype.put(bvo.getPk_src_tradetype(),bvo.getPk_src_tradetype());
+				}
+				bvo.setStatus(2);
+				bvo.setDr(0);
+//				bvo.setPk_src_tradetype(newPk_src_tradetype);
+				if(null!=head.get("djlxbm")){
+					bvo.setPk_tradetype(head.get("djlxbm").toString());
+				}else{
+					throw new BusinessException("表头单据大类不能空!");
+				}
+				if(null!=bvo.getPk_src_tradetype()){
+					String sql = "select * from bd_billtype where pk_billtypeid='"+bvo.getPk_src_tradetype()+"' and nvl(dr,0)=0";
+					ArrayList<BilltypeVO> list = (ArrayList<BilltypeVO>) dao.executeQuery(sql, new BeanListProcessor(BilltypeVO.class));
+					if(null!=list && list.size()>0){
+						bvo.setSrc_billtype(list.get(0).getNcbrcode());
+						bvo.setSrc_tradetype(list.get(0).getPk_billtypecode());
+					}
+				}
+				bvo.setSrc_system("erm");
+				if(null!=billtype && "MUJ00770".equals(billtype)){
+					bvo.setPk_org(InvocationInfoProxy.getInstance().getGroupId());
+				} 
+				addnewBVOs.add(bvo);
+			}
+			
+			//删除
+			if(null!=cbillMap[i].get("vostatus") && cbillMap[i].get("vostatus").equals(3)){
+				bvo.setStatus(3);
+				deleteBVOs.add(bvo);
+			}
+		}
+		if(updateBVOs.size()>0){
+			dao.updateVOList(updateBVOs);
+		}
+		if(deleteBVOs.size()>0){
+			dao.deleteVOList(deleteBVOs);
+		}
+		if(addnewBVOs.size()>0){
+			dao.insertVOList(addnewBVOs);
+		}
+		if(null!=head.get("djlxoid")){
+			return queryBillVoByPK(userid, head.get("djlxoid").toString());
+		}else{
+			return null;
+		}
+	}
+	
+	/**
+	 * 用pk查询单据
+	 */
+	public BillVO queryBillVoByPK(String userid, String pk) throws BusinessException {
+		BillVO billVO = new BillVO();
+		ConditionAggVO condAggVO_head = new ConditionAggVO();
+		ConditionVO[] condVOs_head = new ConditionVO[1];
+		condVOs_head[0] = new ConditionVO();
+		condVOs_head[0].setField(IVOField.PPK);
+		condVOs_head[0].setOperate("=");
+		condVOs_head[0].setValue(pk);
+		condAggVO_head.setConditionVOs(condVOs_head);
+
+		ConditionAggVO condAggVO_body = new ConditionAggVO();
+		ConditionVO[] condVOs_body = new ConditionVO[1];
+		condVOs_body[0] = new ConditionVO();
+		condVOs_body[0].setField(IVOField.PPK);
+		condVOs_body[0].setOperate("=");
+		condVOs_body[0].setValue(pk);
+		condAggVO_body.setConditionVOs(condVOs_body);
+
+		// 查询 表头
+		QueryBillVO head_querybillVO = (QueryBillVO) this.queryPage(userid, condAggVO_head, 1, 1);
+		BillVO head_BillVO = head_querybillVO.getQueryVOs()[0];
+		// 查询 表体
+		QueryBillVO body_querybillVO = (QueryBillVO) queryPage_body(userid, condAggVO_body,1,1);
+		// 查询 表体  
+		if(null!=body_querybillVO.getQueryVOs()){
+			billVO = body_querybillVO.getQueryVOs()[0];
+		}
+		billVO.setHeadVO(head_BillVO.getHeadVO());
+		return billVO;
+	}
+	
+	String pk_org = "";
+	@Override
+	public Object queryPage(String userid, Object obj, int startnum, int endnum) throws BusinessException {
+		HashMap<String,String> map = new HashMap<String,String>();
+		map.put("PPK","djlxoid");
+		map.put("ermbilltype.pk_org","pk_org");
+		StringBuffer djlxoid = reCondition(obj, true,map);
+		String and = "";
+		if(null!=djlxoid && djlxoid.toString().contains("pk_org")){
+			pk_org = djlxoid.toString();
+			djlxoid = new StringBuffer();
+		}
+			//MUJ00770固定【费用申请控制规则设置-集团】节点
+		String groupid = InvocationInfoProxy.getInstance().getGroupId();
+		and = " and pk_group='"+groupid+"' ";
+		String sql = "select distinct * from er_djlx where djdl = 'ma' and matype = 1 "+and+djlxoid+"";
+		ArrayList<DjLXVO> list = (ArrayList<DjLXVO>) dao.executeQuery(sql, new BeanListProcessor(DjLXVO.class));
+		if (list == null || list.size() == 0) {
+			return null;
+		}
+		HashMap<String, Object>[] maps = transNCVOTOMap(list.toArray(new DjLXVO[0]));
+		QueryBillVO qbillVO = new QueryBillVO();
+		BillVO[] billVOs = new BillVO[list.size()];
+		for (int i = 0; i < maps.length; i++) {
+			BillVO billVO = new BillVO();
+			HashMap<String, Object> headVO = maps[i];
+			maps[i].put("ibillstatus", -1);// 自由
+			billVO.setHeadVO(headVO);
+			billVOs[i] = billVO;
+		}
+		qbillVO.setQueryVOs(billVOs); 
+		return qbillVO;
+	}
+
+	@Override
+	public Object queryPage_body(String userid, Object obj, int startnum, int endnum) throws BusinessException {
+		String billtype = super.getBilltype();
+		
+		HashMap<String,String> map = new HashMap<String,String>();
+		map.put("PPK","djlxoid");
+		StringBuffer str = reCondition(obj, true,map);
+		
+		QueryBillVO qbillVO = new QueryBillVO();
+		BillVO[] billVOs = new BillVO[1]; 
+		BillVO billVO = new BillVO();
+		if(null!=billtype && "MUJ00770".equals(billtype)){
+			//MUJ00770固定【费用申请控制规则设置-集团】节点
+			String groupid = InvocationInfoProxy.getInstance().getGroupId();
+			pk_org = " and pk_org='"+groupid+"'";
+		} 
+		
+		/**
+		 * vostatus->1 界面未编辑，也会回传给后台
+		 */
+		String[] formulas = new String[] { "vostatus->1;" };
+		 
+		String action = super.getAction();// 每次执行此方法，返回页签名称
+		if(null!=action && !action.contains("QUERY")){
+			// 控制维度 
+			String sql = "select * from er_mtapp_cfield where nvl(dr,0)=0 "+pk_org+" and pk_tradetype in (select djlxbm from er_djlx where isnull(dr,0)=0 "+str+")";
+			ArrayList<MtappCtrlfieldVO> list = (ArrayList<MtappCtrlfieldVO>) dao.executeQuery(sql, new BeanListProcessor(MtappCtrlfieldVO.class));
+			if (list != null && list.size() > 0) {
+				HashMap<String, Object>[] maps = transNCVOTOMap(list.toArray(new MtappCtrlfieldVO[0]));
+				PubTools.execFormulaWithVOs(maps, formulas);
+				billVO.setTableVO("mtapp_cfield", maps); 
+			} 
+			// 控制对象
+			sql = "select * from er_mtapp_cbill  where nvl(dr,0)=0 "+pk_org+" and pk_tradetype in (select djlxbm from er_djlx where isnull(dr,0)=0 "+str+");";
+			ArrayList<MtappCtrlbillVO> list2 = (ArrayList<MtappCtrlbillVO>) dao.executeQuery(sql, new BeanListProcessor(MtappCtrlbillVO.class));
+			if (list2 != null && list2.size() >0) {
+				HashMap<String, Object>[] maps = transNCVOTOMap(list2.toArray(new MtappCtrlbillVO[0]));
+				PubTools.execFormulaWithVOs(maps, formulas);
+				billVO.setTableVO("mtapp_cbill", maps); 
+			} 
+			billVOs[0] = billVO;
+			qbillVO.setQueryVOs(billVOs);
+			return qbillVO;
+		}else if(null!=action && action.contains("QUERY")){
+			// 控制维度 
+			if (action.contains("mtapp_cfield")) {
+				String sql = "select * from er_mtapp_cfield where nvl(dr,0)=0 "+pk_org+" and pk_tradetype in (select djlxbm from er_djlx where isnull(dr,0)=0 "+str+")";
+				ArrayList<MtappCtrlfieldVO> list = (ArrayList<MtappCtrlfieldVO>) dao.executeQuery(sql, new BeanListProcessor(MtappCtrlfieldVO.class));
+				if (list != null && list.size() > 0) {
+					HashMap<String, Object>[] maps = transNCVOTOMap(list.toArray(new MtappCtrlfieldVO[0]));
+					PubTools.execFormulaWithVOs(maps, formulas);
+					billVO.setTableVO("mtapp_cfield", maps);
+					billVOs[0] = billVO;
+					qbillVO.setQueryVOs(billVOs);
+					return qbillVO; 
+				}
+			}
+			// 控制对象
+			if (action.contains("mtapp_cbill")) {
+				String sql = "select * from er_mtapp_cbill  where nvl(dr,0)=0 "+pk_org+" and pk_tradetype in (select djlxbm from er_djlx where isnull(dr,0)=0 "+str+");";
+				ArrayList<MtappCtrlbillVO> list2 = (ArrayList<MtappCtrlbillVO>) dao.executeQuery(sql, new BeanListProcessor(MtappCtrlbillVO.class));
+				if (list2 != null && list2.size() >0) {
+					HashMap<String, Object>[] maps = transNCVOTOMap(list2.toArray(new MtappCtrlbillVO[0]));
+					PubTools.execFormulaWithVOs(maps, formulas);
+					billVO.setTableVO("mtapp_cbill", maps); 
+					billVOs[0] = billVO;
+					qbillVO.setQueryVOs(billVOs);
+					return qbillVO; 
+				}
+			}
+		}
+		return null;
+	}
+}

@@ -1,0 +1,109 @@
+package hd.bs.bill.bxfee;
+
+import java.util.ArrayList;
+import java.util.HashMap;
+import nc.bs.dao.BaseDAO;
+import nc.bs.framework.common.InvocationInfoProxy;
+import nc.jdbc.framework.processor.BeanListProcessor;
+import nc.vo.erm.expamortize.ExpamtinfoVO;
+import nc.vo.pub.BusinessException;
+import hd.bs.muap.approve.ApproveWorkAction;
+import hd.muap.pub.tools.PubTools;
+import hd.vo.muap.pub.BillVO;
+import hd.vo.muap.pub.ConditionAggVO;
+import hd.vo.muap.pub.ConditionVO;
+import hd.vo.muap.pub.QueryBillVO;
+/**
+ * 待摊费用摊销
+ */
+public class ApportionFeeAmortizAtion extends ApproveWorkAction {
+	
+	BaseDAO dao = new BaseDAO();
+	
+	@Override
+	public Object queryPage(String userid, Object obj, int startnum, int endnum) throws BusinessException {
+		
+		String pk_org = null;
+		String pk_period = null;
+		if (obj != null) {
+			ConditionAggVO conAggVO = (ConditionAggVO) obj;
+			ConditionVO[] conVOs = conAggVO.getConditionVOs();
+			for (int i = 0; i < conVOs.length; i++) {
+				if (conVOs[i].getField().contains("head.pk_org")) {
+					pk_org = conVOs[i].getValue();
+				}
+				if (conVOs[i].getField().contains("head.defitem1")) {
+					pk_period = conVOs[i].getValue();
+				}
+//				if (conVOs[i].getField().contains("PPK")) {
+//					String[] strs = conVOs[i].getValue().split("-");
+//					if(null!=strs && strs.length==2){
+//						pk_org = strs[0];
+//						djlxbm = " and djlxbm='"+strs[1]+"'";
+//					}
+//				}
+			}
+		} 
+		if (null!=pk_org && null!=pk_period) {
+			HashMap<String, Object>[] maps = new HashMap[1];
+			QueryBillVO qbillVO = new QueryBillVO();
+			BillVO[] billVOs = new BillVO[1];
+			for (int i = 0; i < maps.length; i++) {
+				BillVO billVO = new BillVO();
+				maps[i] = new HashMap<String, Object>();
+				maps[i].put("ibillstatus", -1);// 自由
+				maps[i].put("pk_org", pk_org); 
+				maps[i].put("defitem1", pk_period); 
+				maps[i].put("pk_group", InvocationInfoProxy.getInstance().getGroupId()); 
+				maps[i].put("PK", pk_org+"-"+pk_period); 
+				HashMap<String, Object> headVO = maps[i];
+				billVO.setHeadVO(headVO);
+				billVOs[i] = billVO;
+			}
+			qbillVO.setQueryVOs(billVOs); 
+			return qbillVO;
+		}
+		return null;
+	}
+	
+	@Override
+	public Object queryPage_body(String userid, Object obj, int startnum, int endnum) throws BusinessException {
+		String pk_org = null;
+		String pk_period = null;
+		if (obj != null) {
+			ConditionAggVO conAggVO = (ConditionAggVO) obj;
+			ConditionVO[] conVOs = conAggVO.getConditionVOs();
+			for (int i = 0; i < conVOs.length; i++) {
+				if (conVOs[i].getField().contains("PPK")) {
+					String[] strs = conVOs[i].getValue().split("-");
+					if(null!=strs && strs.length==2){
+						pk_org = strs[0];
+						pk_period = strs[1];
+					}
+				}
+			}
+		}
+		if (null!=pk_org && null!=pk_period) {
+			String sql ="SELECT *\n" +
+						"  FROM er_expamtinfo\n" + 
+						" WHERE pk_org = '"+pk_org+"'\n" + 
+						"   and (select yearmth from bd_accperiodmonth where pk_accperiodmonth='"+pk_period+"') between start_period and end_period\n" + 
+						"   and nvl(dr, 0) = 0";
+			ArrayList<ExpamtinfoVO> list2 = (ArrayList<ExpamtinfoVO>) dao.executeQuery(sql, new BeanListProcessor(ExpamtinfoVO.class));
+			if (list2 != null && list2.size() >0) {
+				QueryBillVO qbillVO = new QueryBillVO();
+				BillVO[] billVOs = new BillVO[1]; 
+				BillVO billVO = new BillVO();
+				HashMap<String, Object>[] maps = transNCVOTOMap(list2.toArray(new ExpamtinfoVO[0])); 
+				String[] formulas = new String[] { "vostatus->1;" };
+				PubTools.execFormulaWithVOs(maps, formulas);
+				billVO.setTableVO("er_expamtinfo", maps); 
+				billVOs[0] = billVO;
+				qbillVO.setQueryVOs(billVOs);
+				return qbillVO; 
+			}
+			return null;
+		}
+		return null;
+	}
+}

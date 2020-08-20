@@ -1,0 +1,299 @@
+/**
+ * 
+ */
+package nc.bs.mobile.ApplyManager;
+
+import hd.bs.muap.pub.AbstractMobileAction;
+import hd.muap.pub.tools.PuPubVO;
+import hd.muap.pub.tools.PubTools;
+import hd.muap.vo.field.IVOField;
+import hd.vo.muap.approve.ApproveInfoVO;
+import hd.vo.muap.approve.MApproveVO;
+import hd.vo.muap.pub.BillVO;
+import hd.vo.muap.pub.ConditionAggVO;
+import hd.vo.muap.pub.ConditionVO;
+import hd.vo.muap.pub.QueryBillVO;
+
+import java.util.ArrayList;
+import java.util.HashMap;
+
+import nc.bs.dao.BaseDAO;
+import nc.bs.framework.common.NCLocator;
+import nc.itf.hr.frame.IHrBillCode;
+import nc.itf.trn.partmng.IPartmngManageService;
+import nc.itf.uap.pf.IPFBusiAction;
+import nc.jdbc.framework.generator.IdGenerator;
+import nc.jdbc.framework.generator.SequenceGenerator;
+import nc.jdbc.framework.processor.BeanListProcessor;
+import nc.md.persist.framework.MDPersistenceService;
+import nc.vo.pub.BusinessException;
+import nc.vo.pub.VOStatus;
+import nc.vo.pub.lang.UFBoolean;
+import nc.vo.pub.lang.UFDateTime;
+import nc.vo.pub.lang.UFLiteralDate;
+import nc.vo.trn.partmng.AggPartApply;
+import nc.vo.trn.partmng.PartApplyVO;
+/**
+ * @author wanghy   兼职申请
+ *
+ */
+public class JzApplyAction  extends AbstractMobileAction {
+		private BaseDAO baseDAO;
+
+		public BaseDAO getQuery() {
+			return baseDAO == null ? new BaseDAO() : baseDAO;
+		}
+
+		@Override
+		public Object afterEdit(String userid, Object obj) throws BusinessException {
+			return null;
+		}
+
+
+		@Override
+		public Object processAction(String account, String userid, String billtype, String action, Object obj) throws BusinessException {
+			return super.processAction(account, userid, billtype, action, obj);
+		}
+
+		@Override
+		public Object save(String userid, Object obj) throws BusinessException {
+			AggPartApply aggvo = savevo(userid, obj);
+			String pk = aggvo.getParentVO().getPrimaryKey();
+			if(aggvo.getParentVO().getStatus()==2){
+				getPartmngManageServiceImpl().insertBill(aggvo);
+			}else{
+				getPartmngManageServiceImpl().updateBill(aggvo,true);
+			}
+			return queryBillVoByPK(userid, pk);
+		}
+		
+		public static IPartmngManageService getPartmngManageServiceImpl(){
+			return (IPartmngManageService) NCLocator.getInstance().lookup(IPartmngManageService.class.getName());
+		}
+
+
+		public AggPartApply savevo(String userid, Object obj) throws BusinessException {
+			BillVO billvo = (BillVO) obj;
+			String pk_org = (String) billvo.getHeadVO().get("pk_org");
+			String pk_group = (String) billvo.getHeadVO().get("pk_group");
+			if(pk_group==null||pk_group.length()==0){
+				pk_group="0001A3100000000004R5";
+			}
+			String ruleCode = "6117"; // nc存在编码规则定义节点
+			AggPartApply aggvo = new AggPartApply();
+			PartApplyVO vo = new PartApplyVO();
+			IdGenerator hid = new SequenceGenerator();
+	        String pk= hid.generate();
+			HashMap<String, Object> mvo = billvo.getHeadVO();
+			int hstatus = Integer.parseInt(mvo.get("vostatus").toString());
+			
+			UFDateTime time = new UFDateTime();
+			vo.setPk_org(pk_org);
+			vo.setPk_group(pk_group);
+			vo.setBillmaker(PuPubVO.getString_TrimZeroLenAsNull(mvo.get("billmaker")));//申请人
+			vo.setApply_date(new UFLiteralDate(PuPubVO.getString_TrimZeroLenAsNull(mvo.get("apply_date"))));//申请日期
+			vo.setApprove_state(-1);
+			vo.setStatus(hstatus);
+			vo.setPk_psnjob(PuPubVO.getString_TrimZeroLenAsNull(mvo.get("pk_psnjob")));//兼职人员
+			vo.setEffectdate(new UFLiteralDate(PuPubVO.getString_TrimZeroLenAsNull(mvo.get("effectdate"))));//生效日期
+			vo.setPk_psncl(PuPubVO.getString_TrimZeroLenAsNull(mvo.get("pk_psncl")));//人员类别
+			vo.setPk_post(PuPubVO.getString_TrimZeroLenAsNull(mvo.get("pk_post")));//岗位
+			vo.setPk_postseries(PuPubVO.getString_TrimZeroLenAsNull(mvo.get("pk_postseries")));//岗位序列
+			vo.setPk_job(PuPubVO.getString_TrimZeroLenAsNull(mvo.get("pk_job")));//职务
+			vo.setPk_jobtype(PuPubVO.getString_TrimZeroLenAsNull(mvo.get("pk_jobtype")));//职务类别
+			vo.setPk_jobgrade(PuPubVO.getString_TrimZeroLenAsNull(mvo.get("pk_jobgrade")));//职级
+			vo.setPk_jobrank(PuPubVO.getString_TrimZeroLenAsNull(mvo.get("pk_jobrank")));//职等
+			vo.setPk_job_type(PuPubVO.getString_TrimZeroLenAsNull(mvo.get("pk_job_type")));//任职类型
+			vo.setJobmode(PuPubVO.getString_TrimZeroLenAsNull(mvo.get("jobmode")));//任职方式
+			vo.setDeposemode(PuPubVO.getString_TrimZeroLenAsNull(mvo.get("deposemode")));//免职方式
+			vo.setPoststate(PuPubVO.getUFBoolean_NullAs(mvo.get("poststate"),UFBoolean.FALSE));//是否在岗
+			vo.setOccupation(PuPubVO.getString_TrimZeroLenAsNull(mvo.get("occupation")));//职业
+			vo.setMemo(PuPubVO.getString_TrimZeroLenAsNull(mvo.get("memo")));//备注						
+			vo.setPk_dept(PuPubVO.getString_TrimZeroLenAsNull(mvo.get("pk_dept")));//部门
+			vo.setPk_psndoc(PuPubVO.getString_TrimZeroLenAsNull(mvo.get("pk_psndoc")));//人员基本信息
+			vo.setPk_billtype("6117");//交易
+			vo.setPk_psnorg(PuPubVO.getString_TrimZeroLenAsNull(mvo.get("pk_psnorg")));//组织关系主键
+			vo.setTranstypeid(PuPubVO.getString_TrimZeroLenAsNull(mvo.get("transtypeid")));//流程类型
+			vo.setTranstype(PuPubVO.getString_TrimZeroLenAsNull(mvo.get("transtype")));//流程类型编码
+			vo.setClerkcode(PuPubVO.getString_TrimZeroLenAsNull(mvo.get("clerkcode")));//员工编码
+			vo.setBusiness_type(PuPubVO.getString_TrimZeroLenAsNull(mvo.get("business_type")));//业务流程
+			vo.setPk_hrorg(PuPubVO.getString_TrimZeroLenAsNull(mvo.get("pk_hrorg")));//所属组织
+			vo.setApprover(PuPubVO.getString_TrimZeroLenAsNull(mvo.get("approver")));//审批人
+//			vo.setApprove_time(new UFDateTime(PuPubVO.getString_TrimZeroLenAsNull(mvo.get("approve_time"))));//审批时间
+			vo.setApprove_note(PuPubVO.getString_TrimZeroLenAsNull(mvo.get("approve_note")));//审批批语
+			vo.setIsneedfile(PuPubVO.getUFBoolean_NullAs(mvo.get("isneedfile"), UFBoolean.TRUE));//附件必传
+			vo.setPk_hi_hrorg(PuPubVO.getString_TrimZeroLenAsNull(mvo.get("pk_hi_hrorg")));//主职人力资源组织
+			vo.setPartapp_mode(PuPubVO.getUFBoolean_NullAs(mvo.get("partapp_mode"), UFBoolean.TRUE));//兼职方式
+			vo.setIfsynwork(PuPubVO.getUFBoolean_NullAs(mvo.get("ifsynwork"), UFBoolean.TRUE));//同步工作履历
+			
+				
+			if (hstatus == VOStatus.NEW) {
+				String vcode = NCLocator.getInstance().lookup(IHrBillCode.class).getBillCode(ruleCode, pk_group,pk_org);
+				// 获取客户编码
+				vo.setBill_code(vcode);
+				vo.setCreationtime(time);
+				vo.setCreator(userid);
+				vo.setPk_partmng(pk);
+			} else {
+				vo.setPk_partmng(mvo.get("pk_partmng").toString());
+				vo.setBill_code(mvo.get("bill_code").toString());
+				vo.setModifier(userid.toString());
+				vo.setModifiedtime(time);
+				vo.setCreationtime(new UFDateTime(PuPubVO.getString_TrimZeroLenAsNull(mvo.get("creationtime"))));
+				vo.setCreator(mvo.get("creator")==null?userid:mvo.get("creator").toString());
+			}						
+			aggvo.setParentVO(vo);
+			return aggvo;
+		}
+
+		@Override
+		public Object queryNoPage(String userid, Object obj) throws BusinessException {
+			return null;
+		}
+
+		@Override
+		public Object queryNoPage_body(String userid, Object obj) throws BusinessException {
+			
+			return null;
+		}
+
+		@Override
+		public Object queryPage(String userid, Object obj, int startnum, int endnum) throws BusinessException {
+			StringBuffer str = dealCondition(obj, true);
+			String condition = str.toString().replace("hrtaawayh","tbm_awayh").replace("pk_corp", "pk_org");
+			String condition1 = condition.toString().replace("PPK", "pk_partmng");		
+			StringBuffer sb = new StringBuffer();
+			sb.append("select * from (select rownum rowno, t1.* from (select * from hi_partapply where nvl(dr,0)=0 "+condition1+"")
+			.append(" order by ts desc)t1 where (billmaker = '"+userid+"' or approver = '"+userid+"')) where rowno between ");
+			sb.append(" "+startnum+" and "+endnum+"");
+			@SuppressWarnings("unchecked")
+			ArrayList<PartApplyVO> list = (ArrayList<PartApplyVO>) getQuery().executeQuery(sb.toString(), new BeanListProcessor(PartApplyVO.class));
+			if (list == null || list.size() == 0) {
+				return null;
+			}
+			HashMap<String, Object>[] maps = transNCVOTOMap(list.toArray(new PartApplyVO[0]));
+			QueryBillVO qbillVO = new QueryBillVO();
+			BillVO[] billVOs = new BillVO[list.size()];
+			String[] formulas = new String[]{
+					 "psncode->getcolvalue(bd_psndoc,code,pk_psndoc,pk_psndoc)",
+					 "cardid->getcolvalue(bd_psndoc,id,pk_psndoc,pk_psndoc)",
+					 "mobile->getcolvalue(bd_psndoc,mobile,pk_psndoc,pk_psndoc)",
+					 "psnname->getcolvalue(bd_psndoc,name,pk_psndoc,pk_psndoc)",
+					 "psnorg->getcolvalue(org_adminorg,name,pk_adminorg ,pk_org)",
+					 "psndept->getcolvalue(org_dept,name,pk_dept,getcolvalue(hi_psnjob,pk_dept,pk_psnjob,pk_psnjob))",
+//					 "zw->getcolvalue(om_job,jobname,pk_job,getcolvalue(hi_psnjob,pk_job,pk_psnjob,pk_psnjob))",
+					 "psnpost->getcolvalue(om_post,postname,pk_post,getcolvalue(hi_psnjob,pk_post,pk_psnjob,pk_psnjob))",
+					 "kqunit->getcolvalue(tbm_timeitemcopy,timeitemunit,pk_timeitemcopy,pk_awaytypecopy)"
+					 
+					 };
+			//"jobglbdef->getcolvalue(hi_psnjob,jobglbdef1,pk_psnjob,pk_psnjob)"
+			PubTools.execFormulaWithVOs(maps, formulas);
+			for(int i=0;i<maps.length;i++){
+				BillVO billVO = new BillVO();
+				HashMap<String,Object> headVO = maps[i];				
+				
+				if (maps[i].get("approve_state") == null||-1==Integer.parseInt(maps[i].get("approve_state").toString())) {
+					headVO.put("ibillstatus", "-1");
+				} 
+				else if (3==Integer.parseInt(maps[i].get("approve_state").toString())) {
+					headVO.put("ibillstatus", "3");
+				}
+				else {
+					headVO.put("ibillstatus", "1");
+				}
+				
+				billVO.setHeadVO(headVO);
+				billVOs[i] = billVO;
+			}
+			qbillVO.setQueryVOs(billVOs);
+			return qbillVO;
+		}
+
+		@Override
+		public Object queryPage_body(String userid, Object obj, int startnum, int endnum) throws BusinessException {			
+			return null;
+		}
+
+		public Object refreshData(Object aggvo) throws BusinessException {
+			AggPartApply vo = (AggPartApply) aggvo;
+			PartApplyVO hvo = (PartApplyVO) vo.getParentVO();
+			HashMap<String, Object>[] maps = transNCVOTOMap(new PartApplyVO[] { hvo });
+			QueryBillVO qbillVO = new QueryBillVO();
+			BillVO[] billVOs = new BillVO[1];
+			for (int i = 0; i < maps.length; i++) {
+				BillVO billVO = new BillVO();
+				HashMap<String, Object> headVO = maps[i];
+				billVO.setHeadVO(headVO);
+				billVOs[i] = billVO;
+			}
+			qbillVO.setQueryVOs(billVOs);
+			return qbillVO;
+		}
+
+		@Override
+		public Object delete(String userid, Object obj) throws BusinessException {
+			BillVO bill = (BillVO) obj;
+			String pk_partmng = (String) bill.getHeadVO().get("pk_partmng");
+			AggPartApply aggvos = MDPersistenceService.lookupPersistenceQueryService().queryBillOfVOByPK(AggPartApply.class, pk_partmng, false);
+			IPFBusiAction pf = (IPFBusiAction) NCLocator.getInstance().lookup(IPFBusiAction.class.getName());
+			Object o = pf.processBatch("DELETE", "6117", new AggPartApply[]{aggvos}, null, null, null);
+			return null;
+		}
+
+		@Override
+		public Object submit(String userid, Object obj) throws BusinessException {
+			BillVO bill = (BillVO) obj;
+			String pk_partmng = (String) bill.getHeadVO().get("pk_partmng");
+			AggPartApply aggvos = MDPersistenceService.lookupPersistenceQueryService().queryBillOfVOByPK(AggPartApply.class, pk_partmng, false);
+			IPFBusiAction pf = (IPFBusiAction) NCLocator.getInstance().lookup(IPFBusiAction.class.getName());
+			Object o = pf.processBatch("SAVE", "6117", new AggPartApply[]{aggvos}, null, null, null);
+			return queryBillVoByPK(userid,pk_partmng);
+		}
+
+		/**
+		 * 根据pk 查询出BillVO
+		 */
+		public BillVO queryBillVoByPK(String userid, String pk) throws BusinessException {
+			BillVO billVO = new BillVO();
+			ConditionAggVO condAggVO_head = new ConditionAggVO();
+			ConditionVO[] condVOs_head = new ConditionVO[1];
+			condVOs_head[0] = new ConditionVO();
+			condVOs_head[0].setField(IVOField.PPK);
+			condVOs_head[0].setOperate("=");
+			condVOs_head[0].setValue(pk);
+			condAggVO_head.setConditionVOs(condVOs_head);
+
+			// 查询 表头
+			QueryBillVO head_querybillVO = (QueryBillVO) this.queryPage(userid, condAggVO_head, 1, 1);
+			BillVO head_BillVO = head_querybillVO.getQueryVOs()[0];
+			billVO.setHeadVO(head_BillVO.getHeadVO());
+			return billVO;
+		}
+
+		@Override
+		public Object approve(String userid, Object obj) throws BusinessException {
+			ApproveInfoVO ainfoVO = (ApproveInfoVO) obj;
+			return approveBill(ainfoVO.getBillid(), ainfoVO.getPk_billtype(), ainfoVO.getState(), ainfoVO.getApprovenote(), ainfoVO.getDspVOs());		
+		}
+
+		@Override
+		public Object unapprove(String userid, Object obj) throws BusinessException {
+			MApproveVO bill = (MApproveVO) obj;
+			String pk_partmng = (String) bill.getBillid() ;
+			AggPartApply aggvos = MDPersistenceService.lookupPersistenceQueryService().queryBillOfVOByPK(AggPartApply.class, pk_partmng, false);
+			IPFBusiAction pf = (IPFBusiAction) NCLocator.getInstance().lookup(IPFBusiAction.class.getName());
+			Object o = pf.processBatch("UNAPPROVE", "6117", new AggPartApply[]{aggvos}, null, null, null);
+			return queryBillVoByPK(userid,pk_partmng);
+		}
+
+		@Override
+		public Object unsavebill(String userid, Object obj)
+				throws BusinessException {
+			BillVO bill = (BillVO) obj;
+			String pk_partmng = (String) bill.getHeadVO().get("pk_partmng");
+			AggPartApply aggvos = MDPersistenceService.lookupPersistenceQueryService().queryBillOfVOByPK(AggPartApply.class, pk_partmng, false);
+			IPFBusiAction pf = (IPFBusiAction) NCLocator.getInstance().lookup(IPFBusiAction.class.getName());
+			Object o = pf.processBatch("RECALL", "6117", new AggPartApply[]{aggvos}, null, null, null);
+			return queryBillVoByPK(userid,pk_partmng);
+		}
+}
