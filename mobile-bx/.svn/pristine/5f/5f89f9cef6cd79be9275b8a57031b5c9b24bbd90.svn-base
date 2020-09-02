@@ -603,16 +603,16 @@ public class FeeBaseAction extends AbstractMobileAction{
 	}
 
     //查询发票夹数据  以此支持多张发票的冲销   APP 弹框
-	public Object queryInvoice(String userid, String billtype, Object obj,String action) throws BusinessException{
+	public Object queryInvoice(String userid, String billtype, Object obj) throws BusinessException{
 		BillVO bill = (BillVO) obj;
 		DefEventVO evevo = new DefEventVO();
 		evevo.setRetDefDocVO(getRetDefDocVO(userid,obj));
 		evevo.setVo(bill);
 		evevo.setAction("MULTIDIALOG");//DIALOG    //MULTIDIALOG
-		if("DEFFPCOMBX".equals(action)){
+		if("DEFFPCOMBX".equals(getAction())){
 			evevo.setDialogtitle("选择合并发票");
 		}
-		if("DEFFP".equals(action)){
+		if("DEFFP".equals(getAction())){
 			evevo.setDialogtitle("选择发票");
 		}
 		return evevo;
@@ -679,14 +679,6 @@ public class FeeBaseAction extends AbstractMobileAction{
 		return null;
 	}
 	
-	
-	public Object messages(MDefDocVO[] mdefdoc){
-		DefEventVO evevo = new DefEventVO();
-		evevo.setAction("HINTDIALOG");
-		evevo.setDialogtitle("提示起来");
-		return evevo;
-	}
-	
 	/**
 	 * 如果只选择了合并票中的某一条，那么统一合并票下的所有发票要一起报销
 	 * 合并票有合并票名的是一条分组，其余没有合并票名的所有发票是一条分组
@@ -716,11 +708,6 @@ public class FeeBaseAction extends AbstractMobileAction{
 				}
 				strBu.append(invoiceHBID).append(",");
 				ArrayList<SuperVO> glvolist = (ArrayList<SuperVO>) dao.retrieveByClause(FpglVO.class, strWhere);
-				//在这里提示下 合并票是否选全
-				if(glvolist.size() > mdefdocList.size()){
-					//messages(mdefdoc);
-					mdefdoc[0].setShowvalue("asdnsakdnaskdl");
-				}
 				if(null != glvolist && glvolist.size() > 0){
 					for(int i=0;i<glvolist.size();i++){
 						/**
@@ -836,10 +823,10 @@ public class FeeBaseAction extends AbstractMobileAction{
 				if(null != inlist && inlist.size() > 0){
 					if(null != inlist.get(0).getAttributeValue("vbdef04") && !"".equals(inlist.get(0).getAttributeValue("vbdef04"))){
 						invoiceHB = inlist.get(0).getAttributeValue("vbdef04").toString();
-						invoiceList.setDefitem19(invoiceHB);
+						invoiceList.setDefitem1(invoiceHB);
 					}else{
 						invoiceHB = "invoiceHB";//没有合并票名称，自定义属性
-						invoiceList.setDefitem19(invoiceHB);
+						invoiceList.setDefitem1(invoiceHB);
 					}
 				}
 			}
@@ -849,9 +836,9 @@ public class FeeBaseAction extends AbstractMobileAction{
 			String[] invoiceStrBu = new String[newList.size()];
 			Map<String, List<BXBusItemVO>> resultMap = new HashMap<String, List<BXBusItemVO>>();
 			for(BXBusItemVO invoiceL : newList){
-				if (resultMap.containsKey(invoiceL.getDefitem19())) {
+				if (resultMap.containsKey(invoiceL.getDefitem1())) {
 					//map中存在此id，将数据存放当前key的map中
-					List<BXBusItemVO> iterList = resultMap.get(invoiceL.getDefitem19().toString());
+					List<BXBusItemVO> iterList = resultMap.get(invoiceL.getDefitem1().toString());
 					//倒着放进数组
 					int i = newList.size();
 					--i;
@@ -873,8 +860,9 @@ public class FeeBaseAction extends AbstractMobileAction{
 					List<BXBusItemVO> tmpList = new ArrayList<>();
 					tmpList.add(invoiceL);
 					//key = 合并票ID   value = list
-					resultMap.put(invoiceL.getDefitem19().toString(), tmpList);
+					resultMap.put(invoiceL.getDefitem1().toString(), tmpList);
 				}
+
 			}
 
 			//遍历Map集合的方法，value是List分组后的结果

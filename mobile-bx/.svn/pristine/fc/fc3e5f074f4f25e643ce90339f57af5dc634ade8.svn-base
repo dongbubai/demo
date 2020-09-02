@@ -86,7 +86,7 @@ public class BdocAction extends DefaultDocAction implements IMobileBusiAction {
 	}
 	
 	//dongl 处理PC列表 传入多PK拼接 ---优化去重
-	public String getPKs(String pk){
+	private String getPKs(String pk){
 		if(pk.contains(",")){
 			//set去除重复
 			Set<String> set = new HashSet<String>();
@@ -1812,44 +1812,29 @@ public class BdocAction extends DefaultDocAction implements IMobileBusiAction {
   		if (list.size() == 0 && (null == pk || "".equals(pk))) {
   			return null;
   		}
-  		MDefDocVO[] defDocVOs = null;
-  		if(pk.contains(",")){
-  			StringBuffer invoiceIDs = new StringBuffer();
-  	  		StringBuffer invoiceCodes = new StringBuffer();
-  	  		String invoicePK = "";
-  	  		String invoiceCode = "";
-  	  		for (int i = 0; i < list.size(); i++) {
-  	  			invoiceIDs.append(getString_ZeroLen(list.get(i)[0].toString())).append(",");
-  	  			invoiceCodes.append(getString_ZeroLen(list.get(i)[2].toString())).append(",");
-  	  			
-  	  		}
-  	  		invoicePK = invoiceIDs.substring(0,invoiceIDs.length()-1);
-  			invoiceCode = invoiceCodes.substring(0,invoiceCodes.length()-1);
-  			//通过判断","个数 ，以此判断pk和code数量是否匹配
-  			int invoiceIdNum = invoicePK.length() - invoicePK.replace(",", "").length();
-  			int invoiceIdCode = invoiceCode.length() - invoiceCode.replace(",", "").length();
-  			if(invoiceIdNum != invoiceIdCode){
-  				throw new BusinessException("发票号数量不匹配！");
-  			}
-  			defDocVOs = new MDefDocVO[1];
-  			defDocVOs[0] = new MDefDocVO();
-  			defDocVOs[0].setPk(invoicePK);
-  			defDocVOs[0].setCode(invoiceCode);
-  			defDocVOs[0].setName(invoiceCode);
-  			defDocVOs[0].setShowvalue(defDocVOs[0].getName());
-  		}else{
-  			if (list != null && list.size() > 0) {
-  	  			defDocVOs = new MDefDocVO[list.size()];
-  	  			for (int i = 0; i < list.size(); i++) {
-  	  				Object[] obj2 = list.get(i);
-  	  				defDocVOs[i] = new MDefDocVO();
-  	  				defDocVOs[i].setPk(getString_ZeroLen(obj2[0]));
-  	  				defDocVOs[i].setName(getString_ZeroLen(obj2[2]) == null ? "无" : PuPubVO.getString_TrimZeroLenAsNull(obj2[2]));
-  	  				defDocVOs[i].setCode(getString_ZeroLen(obj2[2]));
-  	  			    defDocVOs[i].setShowvalue(defDocVOs[0].getName());
-  	  			}
-  	  		}
+  		StringBuffer invoiceIDs = new StringBuffer();
+  		StringBuffer invoiceCodes = new StringBuffer();
+  		String invoicePK = "";
+  		String invoiceCode = "";
+  		for (int i = 0; i < list.size(); i++) {
+  			invoiceIDs.append(getString_ZeroLen(list.get(i)[0].toString())).append(",");
+  			invoiceCodes.append(getString_ZeroLen(list.get(i)[2].toString())).append(",");
+  			
   		}
+  		invoicePK = invoiceIDs.substring(0,invoiceIDs.length()-1);
+  		invoiceCode = invoiceCodes.substring(0,invoiceCodes.length()-1);
+  		//通过判断","个数 ，以此判断pk和code数量是否匹配
+  		int invoiceIdNum = invoicePK.length() - invoicePK.replace(",", "").length();
+  		int invoiceIdCode = invoiceCode.length() - invoiceCode.replace(",", "").length();
+  		if(invoiceIdNum != invoiceIdCode){
+  			throw new BusinessException("发票号数量不匹配！");
+  		}
+  		MDefDocVO[] defDocVOs = new MDefDocVO[1];
+  		defDocVOs[0] = new MDefDocVO();
+  		defDocVOs[0].setPk(invoicePK);
+  		defDocVOs[0].setCode(invoiceCode);
+  		defDocVOs[0].setName(invoiceCode);
+  		defDocVOs[0].setShowvalue(defDocVOs[0].getName());
   		
   		return defDocVOs;
   		
@@ -1860,60 +1845,57 @@ public class BdocAction extends DefaultDocAction implements IMobileBusiAction {
 	 */
   	public RetDefDocVO fphDoc(String billtype, String pk,String userid) throws BusinessException {
   		//合并发票要另处理下
-  		if(null != pk && !"".equals(pk)){
-  			MDefDocVO[] defDocVOs =  invoiceHbName(pk);
-  			RetDefDocVO refDocVO = new RetDefDocVO();
-  			if(null != defDocVOs && defDocVOs.length > 0){
+  		if(pk.contains(",")){
+  			if(null != pk && !"".equals(pk)){
+  				MDefDocVO[] defDocVOs =  invoiceHbName(pk);
+  				RetDefDocVO refDocVO = new RetDefDocVO();
   				refDocVO.setDefdocvos(defDocVOs);
   				return refDocVO;
   			}
-  			return null;
   		}else{
-  			//定额发票money是null  这里显示 价税合计金额
-  			StringBuffer querySQL = new StringBuffer(
-  					"select pk_fpgl, fplx, fphm, (case when cyzt= '此票类型不支持查验' then jshj else money end )money\n" +
-  							"  from erm_fpgl\n" + 
-  							" where nvl(dr, 0) = 0\n" + 
-  							"   and erm_fpgl.FPLX is not null\n" + 
-  							"   and erm_fpgl.FPHM is not null\n" + 
-  							"   and billmaker = '"+userid+"' and cyzt <> '作废' \n" );
-  			//是否启用业务参数 H014 Y 启用
-  			UFBoolean booleanFP = new FeeBaseAction().sysinitFPCheck();
-  			if(booleanFP.booleanValue()){
-  				querySQL.append("   and cyzt <> '未查验' ");
-  			}
-  			querySQL.append("   and billversionpk is null ");
-  			/*if(null != pk && !"".equals(pk)){
+  		//定额发票money是null  这里显示 价税合计金额
+  		StringBuffer querySQL = new StringBuffer(
+  				"select pk_fpgl, fplx, fphm, (case when cyzt= '此票类型不支持查验' then jshj else money end )money\n" +
+  						"  from erm_fpgl\n" + 
+  						" where nvl(dr, 0) = 0\n" + 
+  						"   and erm_fpgl.FPLX is not null\n" + 
+  						"   and erm_fpgl.FPHM is not null\n" + 
+  						"   and billmaker = '"+userid+"' and cyzt <> '作废' \n" );
+  		//是否启用业务参数 H014 Y 启用
+  		UFBoolean booleanFP = new FeeBaseAction().sysinitFPCheck();
+  		if(booleanFP.booleanValue()){
+  			querySQL.append("   and cyzt <> '未查验' ");
+  		}
+  		querySQL.append("   and billversionpk is null ");
+  		if(null != pk && !"".equals(pk)){
   			querySQL = new StringBuffer(
   					"select pk_fpgl, fplx, fphm, money\n" +
   							"  from erm_fpgl\n" + 
   							" where nvl(dr, 0) = 0 and pk_fpgl in ('"+pk+"')");
-  		}*/
-  			ArrayList<Object[]> list = (ArrayList<Object[]>) dao.executeQuery(querySQL.toString(), new ArrayListProcessor());
-  			if (list.size() == 0 && (null == pk || "".equals(pk))) {
-  				return null;
-  			}
-  			MDefDocVO[] defDocVOs = null;
-  			if (list != null && list.size() > 0) {
-  				defDocVOs = new MDefDocVO[list.size()];
-  				for (int i = 0; i < list.size(); i++) {
-  					Object[] obj2 = list.get(i);
-  					defDocVOs[i] = new MDefDocVO();
-  					defDocVOs[i].setBilltype(billtype);
-  					defDocVOs[i].setPk(getString_ZeroLen(obj2[0]));
-  					defDocVOs[i].setName(getString_ZeroLen(obj2[2]) == null ? "无" : PuPubVO.getString_TrimZeroLenAsNull(obj2[2]));
-  					defDocVOs[i].setDef1(getString_ZeroLen(obj2[1]));
-  					defDocVOs[i].setDef2(getString_ZeroLen(obj2[3]));
-  					defDocVOs[i].setShowvalue(defDocVOs[i].getDef1() + "    " + defDocVOs[i].getName() + "    " + defDocVOs[i].getDef2());
-  				}
-  			}
-  			RetDefDocVO refDocVO = new RetDefDocVO();
-  			if(null != defDocVOs && defDocVOs.length > 0){
-  				refDocVO.setDefdocvos(defDocVOs);
-  				return refDocVO;
-  			}
+  		}
+  		ArrayList<Object[]> list = (ArrayList<Object[]>) dao.executeQuery(querySQL.toString(), new ArrayListProcessor());
+  		if (list.size() == 0 && (null == pk || "".equals(pk))) {
   			return null;
   		}
+  		MDefDocVO[] defDocVOs = null;
+  		if (list != null && list.size() > 0) {
+  			defDocVOs = new MDefDocVO[list.size()];
+  			for (int i = 0; i < list.size(); i++) {
+  				Object[] obj2 = list.get(i);
+  				defDocVOs[i] = new MDefDocVO();
+  				defDocVOs[i].setBilltype(billtype);
+  				defDocVOs[i].setPk(getString_ZeroLen(obj2[0]));
+  				defDocVOs[i].setName(getString_ZeroLen(obj2[2]) == null ? "无" : PuPubVO.getString_TrimZeroLenAsNull(obj2[2]));
+  				defDocVOs[i].setDef1(getString_ZeroLen(obj2[1]));
+  				defDocVOs[i].setDef2(getString_ZeroLen(obj2[3]));
+  				defDocVOs[i].setShowvalue(defDocVOs[i].getDef1() + "    " + defDocVOs[i].getName() + "    " + defDocVOs[i].getDef2());
+  			}
+  		}
+  		RetDefDocVO refDocVO = new RetDefDocVO();
+  		refDocVO.setDefdocvos(defDocVOs);
+  		return refDocVO;
+  		}
+       return null;
   	}
 
 	// ==================================================================================

@@ -14,7 +14,6 @@ import java.util.List;
 import java.util.Map;
 
 import nc.bs.dao.BaseDAO;
-import nc.bs.dao.DAOException;
 import nc.bs.framework.common.NCLocator;
 import nc.bs.hrss.pub.ServiceLocator;
 import nc.bs.hrss.pub.exception.HrssException;
@@ -23,7 +22,6 @@ import nc.bs.logging.Logger;
 import nc.itf.hr.wa.IPayslipService;
 import nc.itf.hrss.pub.admin.IConfigurationService;
 import nc.itf.hrss.pub.admin.IHROrgProvider;
-import nc.itf.uap.busibean.ISysInitQry;
 import nc.itf.uap.busibean.SysinitAccessor;
 import nc.jdbc.framework.processor.BeanListProcessor;
 import nc.uap.lfw.core.exception.LfwRuntimeException;
@@ -34,12 +32,9 @@ import nc.vo.pub.lang.UFBoolean;
 import nc.vo.pub.lang.UFDate;
 import nc.vo.pub.lang.UFDouble;
 import nc.vo.pub.lang.UFLiteralDate;
-import nc.vo.pub.para.SysInitVO;
 import nc.vo.sm.UserVO;
 import nc.vo.wa.payslip.MyPayslipVO;
 import nc.vo.wa.payslip.PaySlipItemValueVO;
-import nc.vo.wa.payslip.SendTypeEnum;
-import nc.vo.wa.period.PeriodVO;
 
 import org.json.JSONArray;
 import org.json.JSONException;
@@ -75,7 +70,6 @@ public class WaCategoryAction extends AbstractMobileAction {
 													 * @ res
 													 * "&nbsp;&nbsp;&nbsp;&nbsp;{0}年 {1}月&nbsp;&nbsp;&nbsp;&nbsp;{2}&nbsp;&nbsp;&nbsp;&nbsp;{3}&nbsp;&nbsp;&nbsp;&nbsp;第{4}次发薪&nbsp;&nbsp;&nbsp;&nbsp;(&nbsp;{5}&nbsp;)"
 													 */;
-	private UFDouble row;
 
 	@Override
 	public Object queryPage(String userid, Object obj, int startnum, int endnum)
@@ -90,12 +84,9 @@ public class WaCategoryAction extends AbstractMobileAction {
 			return null;
 		} else {
 			if (cons.length == 1) {
-				PeriodVO periodvo=getDefaultPeriod(userid);
-				if (periodvo != null && periodvo.getCstartdate() != null && periodvo.getCenddate() != null) {
-					UFLiteralDate busLiteralDate = periodvo.getCenddate();
-					startDate=busLiteralDate.toString().substring(0, 7);
-					endDate = startDate;
-				}
+				startDate = new UFDate().toString().substring(0, 7);
+				endDate = startDate;
+				// throw new RuntimeException("请输入期间查询!");
 			} else {
 				if (!strwhere.toString().contains("f_period")) {
 
@@ -148,16 +139,12 @@ public class WaCategoryAction extends AbstractMobileAction {
 		try {
 
 			// 获取零值项目控制参数
-			ISysInitQry service = NCLocator.getInstance().lookup(ISysInitQry.class);
-			
-			SysInitVO sysInitVO=service.queryByParaCode(getHROrg(userid, "E20200501", false), ZERO_SEND);
-			UFBoolean zeroPara = UFBoolean.TRUE;
-			if(sysInitVO!=null){
-				if("N".equals(sysInitVO.getValue())){
-					zeroPara = UFBoolean.FALSE;
-				}
-				
+			UFBoolean zeroPara = SysinitAccessor.getInstance().getParaBoolean(
+					getHROrg(userid, "E20200501", false), ZERO_SEND);
+			if (zeroPara == null) {
+				zeroPara = UFBoolean.TRUE;
 			}
+
 			// 获得员工的薪资条列表
 			List<MyPayslipVO> list = getMyPaysLipList(userid, startDate,
 					endDate);
@@ -390,33 +377,6 @@ public class WaCategoryAction extends AbstractMobileAction {
 			throw new LfwRuntimeException("HRSS.PUB.2", "IPayslipService", ex);
 		}
 		return list;
-	}
-	/**
-	 * 根据员工主键获取默认期间
-	 * 
-	 * @author 贺阳
-	 * @param start
-	 * @param end
-	 * @return
-	 */
-	private PeriodVO getDefaultPeriod(String userid) {
-		// 员工主键
-		String pk_psndoc = null;
-		PeriodVO vo=null;
-			String sql = "select * from sm_user where   cuserid='" + userid
-					+ "'";
-			List<UserVO> user_list;
-			try {
-				user_list = (List<UserVO>) getQuery().executeQuery(
-						sql, new BeanListProcessor(UserVO.class));
-				pk_psndoc = user_list.get(0).getPk_psndoc();
-				//获取个人的最新薪资期间
-				IPayslipService service = NCLocator.getInstance().lookup(IPayslipService.class);
-				 vo = service.queryDefaultPeriod(pk_psndoc, SendTypeEnum.SELF.toIntValue());
-			} catch (Exception e) {
-				Logger.error(e.getMessage());
-			}
-		return vo;
 	}
 
 	/**

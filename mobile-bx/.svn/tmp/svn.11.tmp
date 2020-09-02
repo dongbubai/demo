@@ -1,6 +1,6 @@
 package hd.bs.bill.bxfee;
 
-import hd.bs.mobile.bdoc.BdocAction;
+import hd.bs.bill.ic.reimbursement.FpBaseAction;
 import hd.bs.muap.approve.ApproveWorkAction; 
 import hd.bs.muap.file.AttachmentAction;
 import hd.itf.muap.pub.IMobileAction;
@@ -175,8 +175,8 @@ public class BXzbAction extends ApproveWorkAction {
 		if ("DEFAPPLY".equals(action)) {
 			return new FeeBaseAction().queryPageMtapp(userid,billtype,obj);
 		} 
-		//自定义按钮发票报销 dongl      合并报销发票按钮
-		if ("DEFFP".equals(action) || "DEFFPCOMBX".equals(action)) {
+		//自定义按钮发票报销 dongl
+		if ("DEFFP".equals(action)) {
 			//是否启用 发票报销模块 H013
 			UFBoolean booleanFP = new FeeBaseAction().getsysinitFP();
 			if(booleanFP.booleanValue()){
@@ -184,11 +184,11 @@ public class BXzbAction extends ApproveWorkAction {
 		  		if(null != bill.getHeadVO().get("currenttabcode") && !"".equals(bill.getHeadVO().get("currenttabcode"))){
 		  			currenttabcode = bill.getHeadVO().get("currenttabcode").toString();
 		  		}
-				return new FeeBaseAction().queryInvoice(userid,billtype,obj,action);
+				return new FeeBaseAction().queryInvoice(userid,billtype,obj);
 			}
 		} 
-		//自定义发票按钮 DEFFPOK 处理APP子表自增多行        合并报销发票按钮OK
-		if ("DEFFPOK".equals(action) || "DEFFPCOMBXOK".equals(action)) {
+		//自定义发票按钮 DEFFPOK 处理APP子表自增多行  
+		if ("DEFFPOK".equals(action)) {
 			//是否启用 发票报销模块 H013
 			UFBoolean booleanFP = new FeeBaseAction().getsysinitFP();
 			if(booleanFP.booleanValue()){
@@ -199,13 +199,7 @@ public class BXzbAction extends ApproveWorkAction {
 				if(null != yqList && yqList.size() > 0){
 					for(BillyqBVO pageStrs : yqList){
 						if(pageStrs.getTabcode().equals(currenttabcode)){
-							if("DEFFPOK".equals(action)){
-								return new FeeBaseAction().fillInvoice(userid,billtype,obj,invoicehm,billtypecode,currenttabcode);
-							}
-							if("DEFFPCOMBXOK".equals(action)){
-								return new FeeBaseAction().actionok(userid,billtype,obj,invoicehm,billtypecode,currenttabcode,action);
-
-							}
+							return new FeeBaseAction().fillInvoice(userid,billtype,obj,invoicehm,billtypecode,currenttabcode);
 						}
 					}
 				}
@@ -360,7 +354,6 @@ public class BXzbAction extends ApproveWorkAction {
 			}
 
 		}
-		
 		return super.processAction(account, userid, billtype, action, obj);
 	}
 	
@@ -2664,16 +2657,7 @@ public class BXzbAction extends ApproveWorkAction {
 						while (iterator.hasNext()) {
 							Entry<String, Object> entry = iterator.next();
 							if(fphm.equals(entry.getKey())){
-								//这里要处理下invoiceID\
-								if(null != maps[i].get(entry.getKey()) && !"".equals(maps[i].get(entry.getKey()))){
-									String invoiceID = maps[i].get(entry.getKey()).toString();
-									if(invoiceID.contains(",")){
-										String incoiceIds = new BdocAction().getPKs(invoiceID);
-										fphms.append("'").append(incoiceIds).append("',");
-									}else{
-										fphms.append("'").append(maps[i].get(entry.getKey())).append("',");
-									}
-								}
+								fphms.append("'").append(maps[i].get(entry.getKey())).append("',");
 							}
 						}
 					}
@@ -2682,17 +2666,14 @@ public class BXzbAction extends ApproveWorkAction {
 
 				if(fphms.length()>0){
 					//更新
-					String invoice  = fphms.substring(0,fphms.length()-1);
-					sql = "update erm_fpgl set srcbillid='"+returnHVO.getPk_jkbx()+"',billversionpk='Y' where pk_fpgl in ("+invoice+")";
+					sql = "update erm_fpgl set srcbillid='"+returnHVO.getPk_jkbx()+"',billversionpk='Y' where pk_fpgl in ("+fphms.substring(0,fphms.length()-1)+")";
 					dao.executeUpdate(sql);
 					//更新报销单删除或修改的发票票夹状态
 					sql = " update erm_fpgl\n" +
 							" set srcbillid='',billversionpk=''\n" + 
 							" where nvl(erm_fpgl.dr,0)=0\n" + 
 							" and srcbillid='"+returnHVO.getPk_jkbx()+"'\n" + 
-							" and pk_fpgl not in " +
-							"("+invoice+")";
-							//"(select "+fphm+" from er_busitem where pk_jkbx='"+returnHVO.getPk_jkbx()+"' and nvl(dr,0)=0)";
+							" and pk_fpgl not in (select "+fphm+" from er_busitem where pk_jkbx='"+returnHVO.getPk_jkbx()+"' and nvl(dr,0)=0)";
 					dao.executeUpdate(sql);
 				}
 			}
@@ -3228,16 +3209,7 @@ public class BXzbAction extends ApproveWorkAction {
 								while (iterator.hasNext()) {
 									Entry<String, Object> entry = iterator.next();
 									if(fphm.equals(entry.getKey())){
-										//这里要处理下invoiceID\
-										if(null != maps[i].get(entry.getKey()) && !"".equals(maps[i].get(entry.getKey()))){
-											String invoiceID = maps[i].get(entry.getKey()).toString();
-											if(invoiceID.contains(",")){
-												String incoiceIds = new BdocAction().getPKs(invoiceID);
-												fphms.append("'").append(incoiceIds).append("',");
-											}else{
-												fphms.append("'").append(maps[i].get(entry.getKey())).append("',");
-											}
-										}
+										fphms.append("'").append(maps[i].get(entry.getKey())).append("',");
 									}
 								}
 							}
